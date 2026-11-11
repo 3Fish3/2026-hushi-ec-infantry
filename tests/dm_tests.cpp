@@ -341,9 +341,10 @@ void dm_layout_collision_contracts() {
     CHECK(!valid_dm_layout(cross));
     const std::array<DmDeviceConfig, 2> cross_swapped{{device_config(0x02, 0x03), device_config(0x01, 0x02)}};
     CHECK(!valid_dm_layout(cross_swapped));
-    // 自己的反馈 ID 等于自己的命令 ID 同样不允许.
-    const std::array<DmDeviceConfig, 1> self_collision{{device_config(0x05, 0x05)}};
-    CHECK(!valid_dm_layout(self_collision));
+    // 单台设备自身 can_id == master_id 合法: 达妙 MIT 协议收发方向分离,
+    // 命令帧与反馈帧共用 11 位 ID 不构成冲突. 旧工程实测 TX/RX 均为 0x005 可正常收发.
+    const std::array<DmDeviceConfig, 1> self_same_id{{device_config(0x05, 0x05)}};
+    CHECK(valid_dm_layout(self_same_id));
     // 共享 Master ID 且载荷节点不同: 受支持.
     const std::array<DmDeviceConfig, 2> shared{{device_config(0x01, master), device_config(0x02, master)}};
     CHECK(valid_dm_layout(shared));

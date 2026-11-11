@@ -86,10 +86,11 @@ void references() {
     assert(devices[4].mechanism == Mechanism::yaw && devices[4].protocol == Protocol::dm_mit);
     assert(devices[4].feedback_id == 0x005 && devices[4].command_id == 0x005);
     assert(devices[9].protocol == Protocol::dm_mit && devices[9].feedback_id == 0x003);
-    // 旧工作树 yaw 收发 ID 均为 0x005；框架当前不接受该地址组合。
-    // 只记录兼容性差异，不改变驱动或电调配置。
+    // 旧工作树 yaw 收发 ID 均为 0x005；达妙协议允许该组合 (收发方向分离)，
+    // 框架已按此修正校验。此处固定该装配事实，防止退回的错误假设。
     ec::drivers::DmDevice yaw({1, 0x005, 0x005, {12.5f, 30.0f, 10.0f}, {20}});
-    assert(!yaw.configured());
+    assert(yaw.configured());
+    assert(yaw.encode_enable().has_value());
     const auto g = reference_geometry();
     near(g.wheel_base_m, 0.4f); near(g.wheel_lateral_m, 0.4f); near(g.wheel_radius_m, 0.06f);
 }

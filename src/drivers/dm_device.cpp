@@ -9,9 +9,9 @@ bool valid_limits(const DmMitLimits& limits) noexcept {
         std::isfinite(limits.torque_max_nm) && limits.torque_max_nm > 0;
 }
 bool valid_config(const DmDeviceConfig& config) noexcept {
-    // 手册建议小于 16, 但命令帧 ID 本身是标准 11 位; 真正的约束是共用 Master ID
-    // 时的节点低 4 位唯一性, 由 valid_dm_layout 检查.
-    if (config.can_id == config.master_id) { return false; } // 自己的反馈 ID 不能就是自己的命令 ID
+    // 达妙 MIT 协议允许命令帧 ID 与反馈帧 ID 相同: 两者靠方向和载荷结构区分,
+    // 不是同一方向上的地址冲突. 旧工程实测 TX 0x005 / RX 0x005 可正常收发.
+    // 同一总线上两个设备互相占用对方 ID 才是真冲突, 由 valid_dm_addresses 检查.
     return config.bus != 0 && config.can_id <= 0x7ff && config.master_id <= 0x7ff &&
         valid_limits(config.limits) && config.feedback_ttl.valid();
 }
@@ -22,8 +22,7 @@ bool valid_dm_addresses(std::span<const DmDeviceConfig> devices) noexcept {
     if (devices.empty()) { return false; }
     for (std::size_t i = 0; i < devices.size(); ++i) {
         const auto& device = devices[i];
-        if (!device.bus || device.can_id > 0x7ff || device.master_id > 0x7ff ||
-            device.can_id == device.master_id) { return false; }
+        if (!device.bus || device.can_id > 0x7ff || device.master_id > 0x7ff) { return false; }
         for (std::size_t j = 0; j < i; ++j) {
             if (devices[i].bus != devices[j].bus) { continue; }
             // 发送 ID 相同会互相覆盖命令; 反馈节点相同则无法归属.
@@ -32,8 +31,9 @@ bool valid_dm_addresses(std::span<const DmDeviceConfig> devices) noexcept {
                 node_of(devices[i].can_id) == node_of(devices[j].can_id)) {
                 return false;
             }
-            // 同一总线上一个 11 位 ID 只能有一种含义: 一台设备的反馈 ID 不得等于另一台的命令 ID,
+            // 跨设备占用才是冲突: 一台设备的反馈 ID 不得等于另一台的命令 ID,
             // 否则一方的反馈帧会被另一方（含其电调）当成命令. 共享 Master ID 仍按载荷节点区分.
+            // 单台设备内 can_id == master_id 合法 (达妙收发分离), 不在本循环判定.
             if (devices[i].master_id == devices[j].can_id || devices[i].can_id == devices[j].master_id) {
                 return false;
             }
