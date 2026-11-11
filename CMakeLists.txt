@@ -62,6 +62,12 @@ target_include_directories(ec_sentinel_app PUBLIC robots/sentinel/app)
 target_link_libraries(ec_sentinel_app PUBLIC ec::core ec_sentinel_recording)
 target_compile_options(ec_sentinel_app PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
 
+# 步兵几何与装配资料库；不包含可烧录的板级整车控制。
+add_library(ec_infantry_app STATIC robots/infantry/app/infantry_config.cpp)
+target_include_directories(ec_infantry_app PUBLIC robots/infantry/app)
+target_link_libraries(ec_infantry_app PUBLIC ec::core)
+target_compile_options(ec_infantry_app PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
+
 if(EC_BUILD_STM32F407)
     add_subdirectory(platform/stm32f407)
 endif()
@@ -76,6 +82,11 @@ if(EC_BUILD_TESTS OR EC_BUILD_EXAMPLES)
 endif()
 if(EC_BUILD_TESTS)
     enable_testing()
+    add_executable(ec_infantry_direction_tests tests/infantry_direction_tests.cpp)
+    target_link_libraries(ec_infantry_direction_tests PRIVATE ec_infantry_app)
+    target_compile_options(ec_infantry_direction_tests PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror;-UNDEBUG>)
+    add_test(NAME infantry_direction_contracts COMMAND ec_infantry_direction_tests)
+    set_tests_properties(infantry_direction_contracts PROPERTIES TIMEOUT 30)
     add_executable(ec_capture_tests tests/capture_tests.cpp)
     target_link_libraries(ec_capture_tests PRIVATE ec_sentinel_capture)
     target_compile_options(ec_capture_tests PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
@@ -308,7 +319,8 @@ endif()
 if(EC_BUILD_TESTS)
     # 注册清单自检: 期望的测试名一个都不能少 (漏注册会让"通过"看起来依然完整).
     # 放在文件末尾, 因此必须等示例测试也注册完成后再核对.
-    set(_ec_expected_tests sentinel_capture_contracts core_contracts control_contracts axis_contracts dm_contracts
+    set(_ec_expected_tests infantry_direction_contracts
+        sentinel_capture_contracts core_contracts control_contracts axis_contracts dm_contracts
         session_authority_contracts sentinel_app_config_contracts
         sentinel_app_authority_contracts sentinel_app_execution_contracts
         sentinel_app_perception_contracts sentinel_serial_contracts sentinel_app_remote_contracts sentinel_app_cycle_contracts
