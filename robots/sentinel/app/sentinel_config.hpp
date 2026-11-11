@@ -176,6 +176,10 @@ struct ConfigReport {
 // 校验配置: 单位/范围/域身份唯一性/来源混用. 不修改配置, 不构造设备.
 [[nodiscard]] ConfigReport validate(const SentinelConfig& config, ConfigAudience audience) noexcept;
 
+// 步兵部署配置: 四全向轮 + 达妙 yaw + M3508 pitch, 不装配 fire_yaw/摩擦轮/拨弹.
+// 参数来自旧工程工作树; 轮向、零位、量程仍为待标定项.
+[[nodiscard]] SentinelConfig infantry_deployment_config() noexcept;
+
 // 设备配置转换: 只有该槽参数齐备且合法时才返回值.
 [[nodiscard]] std::optional<drivers::DjiDeviceConfig> device_config(const DjiSlot& slot) noexcept;
 [[nodiscard]] std::optional<drivers::DmDeviceConfig> device_config(const DmSlot& slot) noexcept;

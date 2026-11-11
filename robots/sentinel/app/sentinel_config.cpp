@@ -519,6 +519,115 @@ SentinelConfig synthetic_config() noexcept {
     return config;
 }
 
+SentinelConfig infantry_deployment_config() noexcept {
+    // 步兵装配: 四轮全向底盘 + 达妙 yaw + M3508 pitch.
+    // 未装配: fire_yaw(哨兵双云台)、摩擦轮、拨弹 — 保持 installed=false,
+    // 其域状态为 unavailable, 不参与 all_complete 判定.
+    //
+    // 参数来源: 旧工程当前工作树; 轮向、零位、量程为待标定项, 来源标 user_confirmed 仅表示
+    // "按旧工程装配"这一事实被确认, 不代表实车已验收.
+    SentinelConfig config{};
+    config.kind = ConfigKind::real_deployment;
+
+    const auto dji = [](Domain domain, std::uint8_t bus, drivers::DjiMode mode,
+                         std::uint8_t id, float rotor_per_axis, int direction,
+                         float current_limit_a, float output_limit_raw,
+                         float axis_velocity_limit, float rotor_speed_limit,
+                         bool needs_position, control::PidConfig velocity_pid,
+                         control::PidConfig position_pid) {
+        DjiSlot slot{};
+        slot.domain = domain;
+        slot.installed = true;
+        slot.origin = Origin::user_confirmed;
+        slot.bus = bus;
+        slot.mode = mode;
+        slot.device_id = id;
+        slot.rotor_per_axis = rotor_per_axis;
+        slot.direction = direction;
+        slot.current_limit_a = current_limit_a;
+        slot.output_limit_raw = static_cast<std::int16_t>(output_limit_raw);
+        slot.max_rotor_speed_rad_s = rotor_speed_limit;
+        slot.max_axis_velocity_rad_s = axis_velocity_limit;
+        slot.feedback_ttl = Lifetime{20};
+        slot.velocity_pid = velocity_pid;
+        if (needs_position) { slot.position_pid = position_pid; }
+        return slot;
+    };
+
+    // 底盘四轮: M3508 + C620, CAN1 ID1~4, 减速比 19. 速度环 kp=2.5 (旧工程 Chassis_pid).
+    // 归一化输出量纲: ±1 对应轴侧电流上限; 20 A 满量程, 由 current_limit_a 表达.
+    const control::PidConfig wheel_speed{2.5f, 0.0f, 0.0f, 0.0f, -1.0f, 1.0f};
+    const control::PidConfig wheel_position{};
+    config.dji[0] = dji(Domain::chassis_lf, 1, drivers::DjiMode::c620_current, 1, 19.0f, 1,
+        20.0f, 16384.0f, 50.0f, 100.0f, false, wheel_speed, wheel_position);
+    config.dji[1] = dji(Domain::chassis_rf, 1, drivers::DjiMode::c620_current, 2, 19.0f, 1,
+        20.0f, 16384.0f, 50.0f, 100.0f, false, wheel_speed, wheel_position);
+    config.dji[2] = dji(Domain::chassis_lb, 1, drivers::DjiMode::c620_current, 3, 19.0f, 1,
+        20.0f, 16384.0f, 50.0f, 100.0f, false, wheel_speed, wheel_position);
+    config.dji[3] = dji(Domain::chassis_rb, 1, drivers::DjiMode::c620_current, 4, 19.0f, 1,
+        20.0f, 16384.0f, 50.0f, 100.0f, false, wheel_speed, wheel_position);
+
+    // pitch: M3508 丝杆, CAN2 ID5, 速度为唯一闭环 (旧工程配置). 无位置环.
+    config.dji[4] = dji(Domain::pitch, 2, drivers::DjiMode::c620_current, 5, 19.0f, 1,
+        20.0f, 16384.0f, 30.0f, 100.0f, false,
+        control::PidConfig{4.5f, 0.0f, 0.0f, 0.0f, -1.0f, 1.0f}, wheel_position);
+
+    // yaw: 达妙 J4310, CAN1 TX/RX 0x005, MIT 闭环.
+    // 旧工程用 IMU 做角度/速度反馈; 新框架 DmSlot 只表达 MIT 通道,
+    // 角度参考由 joint zero_offset_rad 与 ContinuousYawAngle 提供.
+    DmSlot yaw{};
+    yaw.domain = Domain::main_yaw;
+    yaw.installed = true;
+    yaw.origin = Origin::user_confirmed;
+    yaw.bus = 1;
+    yaw.can_id = 0x005;
+    yaw.master_id = 0x005;   // 达妙收发方向分离, 同 ID 合法
+    yaw.limits = drivers::DmMitLimits{12.5f, 30.0f, 10.0f};
+    yaw.feedback_ttl = Lifetime{20};
+    yaw.mit_kp = 30.0f;
+    yaw.mit_kd = 2.0f;
+    config.dm[0] = yaw;
+
+    // 底盘几何: 400 mm 轴距/轮距, 轮半径 60 mm, 云台居中.
+    // 轮位按 +X 前 / +Y 左; 滚动方向取切向. gain 为待标定项, 暂用 +1.
+    constexpr std::array<std::array<float, 2>, chassis_wheel_count> positions{{
+        {0.2f, 0.2f}, {0.2f, -0.2f}, {-0.2f, 0.2f}, {-0.2f, -0.2f}}};
+    for (std::size_t i = 0; i < chassis_wheel_count; ++i) {
+        config.wheels[i].x_m = positions[i][0];
+        config.wheels[i].y_m = positions[i][1];
+        config.wheels[i].roll_dir_rad = std::atan2(positions[i][1], positions[i][0]) + pi * 0.5f;
+        config.wheels[i].radius_m = 0.06f;
+        config.wheels[i].gain = 1.0f;
+    }
+
+    // 关节几何: yaw 与 pitch. fire_yaw 未装配, 保持空.
+    // yaw 范围暂按 ±2.6 rad (旧工程编码器单圈可唯一恢复的窗口), zero 待实测.
+    config.joints[0] = JointGeometryConfig{Domain::main_yaw, 0.0f, -2.6f, 2.6f};
+    // fire_yaw 未装配: 域名必须显式写成本域, 不能留默认 main_yaw, 否则触发 domain_duplicated.
+    // 缺项使其保持 incomplete; 由于该域 unavailable, combine 后仍为 unavailable, 不阻断启动.
+    config.joints[1] = JointGeometryConfig{Domain::fire_yaw, std::nullopt, std::nullopt, std::nullopt};
+    config.joints[2] = JointGeometryConfig{Domain::pitch, 0.0f, -1.0f, 0.5f};
+
+    // 时序: 1 ms 控制周期, 反馈 20 ms 时效 (旧工程 daemon 10 tick ≈ 10 ms 量级).
+    config.timing.control_dt_s = 0.001f;
+    config.timing.target_ttl = Lifetime{20};
+    config.timing.remote_ttl = Lifetime{100};
+    config.timing.imu_ttl = Lifetime{50};
+    config.timing.host_link_ttl = Lifetime{500};
+    config.timing.max_dt_s = 0.02f;
+    const GroupTiming gm{1000, 0, {2000}, 20000};
+    config.runtime.gm = gm;
+    config.runtime.chassis = gm;
+    config.runtime.shooter = gm;
+    config.runtime.pitch = gm;
+    config.perception = PerceptionTiming{{50000}, {20000}, {5000}, 20000};
+
+    // 不提供串口模型: 步兵首版不做惯性重构, 方向只依赖 yaw 关节角.
+    config.serial = std::nullopt;
+    config.serial_origin = Origin::unspecified;
+    return config;
+}
+
 SentinelConfig real_config_placeholder() noexcept {
     // 只声明配置类别, 不填任何猜测值: 所有域保持"未装配/未提供", 由持有者逐项补齐.
     SentinelConfig config{};
