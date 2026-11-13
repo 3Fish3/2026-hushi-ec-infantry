@@ -4,7 +4,7 @@ import subprocess
 import sys
 import unittest
 import numpy as np
-sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'boards/sentinel_f407/tools'))
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'boards/infantry_f407/tools'))
 import motor_bench_identify as ident
 import motor_bench_tune as tune
 native=sys.argv.pop(1)

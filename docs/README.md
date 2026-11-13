@@ -18,8 +18,8 @@ tags: [robomaster, documentation, training]
 2. **跑出结果**: [第一次构建与运行](getting-started/第一次构建与运行.md), 完成默认测试并查看模拟轨迹.
 3. **建立代码直觉**: [项目分层与代码导航](guides/项目分层与代码导航.md); 不熟悉 C++ 时配合 [从 C 到现代 C++](guides/从C到现代C++入门.md).
 4. **理解组件协作**: 从 [通道](modules/core/通道与数据交换.md)、[时间](modules/core/时间与时效.md)、[授权门](modules/core/授权门.md) 到 [PID](modules/control/PID.md)、[速度控制链](modules/control/速度控制链.md).
-5. **接触平台与硬件**: 阅读 [STM32F407 适配](platforms/stm32f407.md) 和 [板级构建](boards/sentinel_f407/生成与构建.md). 无硬件也可交叉编译.
-6. **获得授权后实测**: 按 [哨兵实施与验收](robots/sentinel/实施与验收.md) 从 S1 开始逐步进行.
+5. **接触平台与硬件**: 阅读 [STM32F407 适配](platforms/stm32f407.md) 和 [板级构建](boards/infantry_f407/生成与构建.md). 无硬件也可交叉编译.
+6. **获得授权后实测**: 按 [哨兵实施与验收](robots/infantry/实施与验收.md) 从 S1 开始逐步进行.
 
 ## 按任务查阅
 
@@ -28,9 +28,9 @@ tags: [robomaster, documentation, training]
 | 传递目标、反馈或单次事件 | [模块索引](modules/README.md) → 通道与数据交换 |
 | 调用速度控制或添加电机协议 | 模块索引 → 控制、传输和设备驱动 |
 | 接入 HAL/FreeRTOS 或理解锁策略 | [STM32F407](platforms/stm32f407.md) / [主机适配](platforms/host.md) |
-| 查看 C 板资源、生成固件 | [板级说明](boards/sentinel_f407/README.md) / [生成与构建](boards/sentinel_f407/生成与构建.md) |
-| 了解上下位机分工、尚未冻结的需求 | [架构设计](架构设计.md) / [哨兵 Checklist](robots/sentinel/现有能力与待确认Checklist.md) |
-| 推进哨兵 APP, 准备只读采集与标定 | [应用首轮与契约冻结](robots/sentinel/应用首轮与契约冻结.md) / [只读采集工具](guides/哨兵只读采集与人工标定.md) |
+| 查看 C 板资源、生成固件 | [板级说明](boards/infantry_f407/README.md) / [生成与构建](boards/infantry_f407/生成与构建.md) |
+| 了解上下位机分工、尚未冻结的需求 | [架构设计](架构设计.md) / [哨兵 Checklist](robots/infantry/现有能力与待确认Checklist.md) |
+| 推进哨兵 APP, 准备只读采集与标定 | [应用首轮与契约冻结](robots/infantry/应用首轮与契约冻结.md) / [只读采集工具](guides/哨兵只读采集与人工标定.md) |
 | 配置 GM6020 单电机台架, 查看参数与烧录入口 | [GM6020 单电机测试](guides/GM6020单电机测试.md) |
 | 用串口看遥控器/IMU, 理解应用消息接入 | [串口观测与应用接入](guides/串口观测与应用接入.md) |
 | 修改代码并准备交付 | [开发与验证流程](guides/开发与验证流程.md) |
@@ -43,7 +43,7 @@ tags: [robomaster, documentation, training]
 - `modules/`: 组件契约与使用方法, 不定义实车参数.
 - `platforms/`: 主机与 STM32/HAL/RTOS 适配.
 - `boards/`: 具体板卡的资源与构建方式.
-- `robots/sentinel/`: 哨兵能力、待决策项及验收.
+- `robots/infantry/`: 哨兵能力、待决策项及验收.
 - [架构设计](架构设计.md): 全局决策和边界的主要维护位置.
 
 示例会区分可运行主机程序与需要应用补齐的片段. 模型配置不代表实机配置, `std::nullopt`、失能、零电流、停止和保持姿态也不能混为一谈.

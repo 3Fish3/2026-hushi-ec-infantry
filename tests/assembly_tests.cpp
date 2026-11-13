@@ -19,9 +19,9 @@ void check(bool condition, const char* expression, int line) {
 }
 #define CHECK(...) check(static_cast<bool>((__VA_ARGS__)), #__VA_ARGS__, __LINE__)
 
-using ec::sentinel::AssemblyStatus;
-using ec::sentinel::assembly_init;
-using ec::sentinel::assembly_state;
+using ec::infantry::AssemblyStatus;
+using ec::infantry::assembly_init;
+using ec::infantry::assembly_state;
 
 ec::drivers::DjiDeviceConfig c620(std::uint8_t bus, std::uint8_t device_id, std::uint8_t slot) {
     // slot 只用于构造合法布局: 同一总线上每条命令 ID 最多 4 个槽位.
@@ -55,9 +55,9 @@ void empty_install_contracts() {
     CHECK(assembly_state().status == AssemblyStatus::empty);
     CHECK(assembly_state().dji_count == 0 && assembly_state().dm_count == 0);
     CHECK(assembly_state().routes == 0);
-    CHECK(ec::sentinel::dji_device(0) == nullptr && ec::sentinel::dm_device(0) == nullptr);
+    CHECK(ec::infantry::dji_device(0) == nullptr && ec::infantry::dm_device(0) == nullptr);
     // 空表时任何反馈都只计入未路由, 不创建隐式设备.
-    ec::sentinel::assembly_route(1, feedback(0x201, 0, 0), {100});
+    ec::infantry::assembly_route(1, feedback(0x201, 0, 0), {100});
     CHECK(assembly_state().routed == 0 && assembly_state().unrouted == 1);
 }
 
@@ -66,11 +66,11 @@ void device_ownership_contracts() {
     const std::array<ec::drivers::DjiDeviceConfig, 1> motors{c620(1, 1, 0)};
     assembly_init(motors, {});
     CHECK(assembly_state().status == AssemblyStatus::ready);
-    ec::drivers::DjiDevice* device = ec::sentinel::dji_device(0);
+    ec::drivers::DjiDevice* device = ec::infantry::dji_device(0);
     CHECK(device != nullptr);
     // 位置参考需要可写设备: 只读指针下无法编译. 参考必须先有新鲜反馈.
     CHECK(!device->reference_position(0.0f, {10}));
-    ec::sentinel::assembly_route(1, feedback(0x201, 100, 500), {100});
+    ec::infantry::assembly_route(1, feedback(0x201, 100, 500), {100});
     CHECK(device->reference_position(0.0f, {100}));
     CHECK(device->state({100}).position_rad.validity == ec::Validity::valid);
     // 用装配层交出的设备直接构造轴 (DjiAxis 需要 DjiDevice&): 这一行在只读指针下无法编译.
@@ -81,7 +81,7 @@ void device_ownership_contracts() {
     CHECK(verdict.status == ec::motion::AxisStatus::invalid_config);
     // 装配表为空时仍是空指针, 不返回悬垂引用.
     assembly_init({}, {});
-    CHECK(ec::sentinel::dji_device(0) == nullptr && ec::sentinel::dm_device(0) == nullptr);
+    CHECK(ec::infantry::dji_device(0) == nullptr && ec::infantry::dm_device(0) == nullptr);
 }
 
 // V06: 装配层不只交设备指针, 还要能跑通"接收→路由→反馈→轴→组发送"的完整路径.
@@ -90,12 +90,12 @@ void valid_assembly_chain_contracts() {
     const std::array<ec::drivers::DjiDeviceConfig, 2> motors{c620(1, 1, 0), c620(1, 2, 1)};
     assembly_init(motors, {});
     CHECK(assembly_state().status == AssemblyStatus::ready);
-    ec::drivers::DjiDevice* first = ec::sentinel::dji_device(0);
-    ec::drivers::DjiDevice* second = ec::sentinel::dji_device(1);
+    ec::drivers::DjiDevice* first = ec::infantry::dji_device(0);
+    ec::drivers::DjiDevice* second = ec::infantry::dji_device(1);
     CHECK(first != nullptr && second != nullptr);
     // 反馈经路由进入设备 (不是直接调 device->update).
-    ec::sentinel::assembly_route(1, feedback(0x201, 0, 500), {100});
-    ec::sentinel::assembly_route(1, feedback(0x202, 0, 500), {100});
+    ec::infantry::assembly_route(1, feedback(0x201, 0, 500), {100});
+    ec::infantry::assembly_route(1, feedback(0x202, 0, 500), {100});
     CHECK(assembly_state().routed == 2);
     CHECK(first->state({100}).rotor.fresh_at({100}, {20}));
     CHECK(first->reference_position(0.0f, {100}));
@@ -131,10 +131,10 @@ void valid_assembly_chain_contracts() {
 
 // V06: 完整 typed 输入交接 (含键鼠/按键) 与时效口径.
 void typed_input_handoff_contracts() {
-    ec::sentinel::input_reset();
+    ec::infantry::input_reset();
     // 从未收到样本: 不是"零值有效样本".
-    CHECK(!ec::sentinel::input_remote({100}).has_value());
-    CHECK(!ec::sentinel::input_imu({100}).has_value());
+    CHECK(!ec::infantry::input_remote({100}).has_value());
+    CHECK(!ec::infantry::input_imu({100}).has_value());
     ec::drivers::Dr16Sample remote{};
     remote.ch0 = 660;
     remote.ch1 = -660;
@@ -148,8 +148,8 @@ void typed_input_handoff_contracts() {
     remote.mouse_left = true;
     remote.mouse_right = false;
     remote.keys = 0x0005;
-    ec::sentinel::input_publish_remote(remote, {1000});
-    const auto published = ec::sentinel::input_remote({1050});
+    ec::infantry::input_publish_remote(remote, {1000});
+    const auto published = ec::infantry::input_remote({1050});
     CHECK(published.has_value());
     CHECK(published->validity == ec::Validity::valid);
     CHECK(published->sampled_at.ms == 1000);
@@ -162,25 +162,25 @@ void typed_input_handoff_contracts() {
     CHECK(published->value.mouse_left && !published->value.mouse_right);
     CHECK(published->value.keys == 0x0005);
     // 超出 TTL: 样本还在, 但有效性明确为 invalid (动作由调用方决定).
-    const auto stale = ec::sentinel::input_remote({1200});
+    const auto stale = ec::infantry::input_remote({1200});
     CHECK(stale.has_value() && stale->validity == ec::Validity::invalid);
     CHECK(stale->sampled_at.ms == 1000);
     // 失联边沿: 明确作废后不再返回旧样本.
-    ec::sentinel::input_remote_lost();
-    CHECK(!ec::sentinel::input_remote({1001}).has_value());
+    ec::infantry::input_remote_lost();
+    CHECK(!ec::infantry::input_remote({1001}).has_value());
     // IMU: 样本时刻与调用方传入的采集时刻一致, 而不是"读取那一刻".
     ec::drivers::Bmi088Sample imu{};
     imu.acc_mps2[2] = 9.81f;
     imu.gyro_rad_s[0] = 0.5f;
     imu.temp_c = 31.5f;
-    ec::sentinel::input_publish_imu(imu, {2000});
-    const auto imu_sample = ec::sentinel::input_imu({2010});
+    ec::infantry::input_publish_imu(imu, {2000});
+    const auto imu_sample = ec::infantry::input_imu({2010});
     CHECK(imu_sample.has_value() && imu_sample->validity == ec::Validity::valid);
     CHECK(imu_sample->sampled_at.ms == 2000);
     CHECK(imu_sample->value.acc_mps2[2] == 9.81f && imu_sample->value.temp_c == 31.5f);
-    CHECK(!ec::sentinel::input_imu({2100}).has_value() ||
-        ec::sentinel::input_imu({2100})->validity == ec::Validity::invalid);
-    ec::sentinel::input_reset();
+    CHECK(!ec::infantry::input_imu({2100}).has_value() ||
+        ec::infantry::input_imu({2100})->validity == ec::Validity::invalid);
+    ec::infantry::input_reset();
 }
 
 void routing_contracts() {
@@ -189,18 +189,18 @@ void routing_contracts() {
     assembly_init(motors, {});
     CHECK(assembly_state().status == AssemblyStatus::ready);
     CHECK(assembly_state().dji_count == 2 && assembly_state().routes == 2);
-    CHECK(ec::sentinel::dji_device(0) != nullptr && ec::sentinel::dji_device(1) != nullptr);
+    CHECK(ec::infantry::dji_device(0) != nullptr && ec::infantry::dji_device(1) != nullptr);
 
-    ec::sentinel::assembly_route(1, feedback(0x202, 100, 500), {100});
+    ec::infantry::assembly_route(1, feedback(0x202, 100, 500), {100});
     CHECK(assembly_state().routed == 1);
     // 只有匹配的设备被更新, 另一个保持无反馈.
-    const auto second = ec::sentinel::dji_device(1)->state({100});
-    const auto first = ec::sentinel::dji_device(0)->state({100});
+    const auto second = ec::infantry::dji_device(1)->state({100});
+    const auto first = ec::infantry::dji_device(0)->state({100});
     CHECK(second.rotor.fresh_at({100}, {20}) && second.rotor.value.rotor_speed_rad_s != 0.0f);
     CHECK(!first.rotor.fresh_at({100}, {20}));
     // 未安装的 ID 与错误总线都不路由.
-    ec::sentinel::assembly_route(1, feedback(0x203, 0, 0), {100});
-    ec::sentinel::assembly_route(2, feedback(0x202, 0, 0), {100});
+    ec::infantry::assembly_route(1, feedback(0x203, 0, 0), {100});
+    ec::infantry::assembly_route(2, feedback(0x202, 0, 0), {100});
     CHECK(assembly_state().routed == 1 && assembly_state().unrouted == 2);
 }
 
@@ -215,7 +215,7 @@ void layout_rejection_contracts() {
     const std::array<ec::drivers::DjiDeviceConfig, 2> duplicate{c620(1, 1, 0), c620(1, 1, 0)};
     assembly_init(duplicate, {});
     CHECK(assembly_state().status == AssemblyStatus::invalid_dji);
-    CHECK(ec::sentinel::dji_device(0) == nullptr);
+    CHECK(ec::infantry::dji_device(0) == nullptr);
     CHECK(assembly_state().routes == 0);
     // 总线号 0 非法.
     const std::array<ec::drivers::DjiDeviceConfig, 1> no_bus{c620(0, 1, 0)};
@@ -242,10 +242,10 @@ void dm_node_routing_contracts() {
     CHECK(assembly_state().status == AssemblyStatus::ready && assembly_state().routes == 2);
     // 一帧只能刷新它自己的节点; 另一个必须仍然没有反馈.
     // 节点字段 1 (状态 nibble = 1 已使能): 只刷新节点 1 的设备.
-    ec::sentinel::assembly_route(1, {0x10, 8, {0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 40, 50}}, {100});
+    ec::infantry::assembly_route(1, {0x10, 8, {0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 40, 50}}, {100});
     CHECK(assembly_state().routed == 1);
-    CHECK(ec::sentinel::dm_device(0)->online({100}));
-    CHECK(!ec::sentinel::dm_device(1)->online({100}));
+    CHECK(ec::infantry::dm_device(0)->online({100}));
+    CHECK(!ec::infantry::dm_device(1)->online({100}));
 }
 } // 测试辅助
 

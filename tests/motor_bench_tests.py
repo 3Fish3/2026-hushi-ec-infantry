@@ -15,7 +15,7 @@ from types import SimpleNamespace
 import contextlib
 import io
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'boards/sentinel_f407/tools'))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'boards/infantry_f407/tools'))
 try:
     import motor_bench as bench
 except ModuleNotFoundError as exc:

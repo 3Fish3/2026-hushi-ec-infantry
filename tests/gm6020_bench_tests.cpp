@@ -8,7 +8,7 @@
 #include <numbers>
 // 失败时以非零码退出且不触发 CRT 交互弹窗, ctest 要求非交互
 #define CHECK(x) do{if(!(x)){std::cerr<<__LINE__<<": " #x "\n";std::_Exit(3);}}while(false)
-using namespace ec::sentinel;
+using namespace ec::infantry;
 // 既有毫秒用例显式生成合成微秒时钟; 新用例直接覆盖亚毫秒与回绕.
 struct Bench : Gm6020Bench {
     using Gm6020Bench::Gm6020Bench;

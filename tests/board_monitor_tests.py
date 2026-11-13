@@ -12,7 +12,7 @@ import struct
 import sys
 import unittest
 
-path = Path(__file__).resolve().parents[1] / 'boards/sentinel_f407/tools/board_monitor.py'
+path = Path(__file__).resolve().parents[1] / 'boards/infantry_f407/tools/board_monitor.py'
 spec = importlib.util.spec_from_file_location('board_monitor', path)
 monitor = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(monitor)

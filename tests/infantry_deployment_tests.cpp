@@ -1,14 +1,14 @@
 // 步兵部署配置契约: 域装配、可启动性、方向参考单一性.
 // 主机测试不驱动电机; 轮向/零位/量程仍为待标定项.
-#include "sentinel_config.hpp"
-#include "sentinel_kinematics.hpp"
+#include "infantry_config.hpp"
+#include "infantry_kinematics.hpp"
 #include <cassert>
 #include <cmath>
 #include <cstdio>
 #include <numbers>
 
 namespace {
-using namespace ec::sentinel::app;
+using namespace ec::infantry::app;
 using ec::drivers::DjiMode;
 constexpr float pi = std::numbers::pi_v<float>;
 
@@ -22,11 +22,21 @@ void deployment_is_startable() {
     assert(report.domains[domain_index(Domain::friction_left)] == ConfigState::unavailable);
     assert(report.domains[domain_index(Domain::friction_right)] == ConfigState::unavailable);
     assert(report.domains[domain_index(Domain::trigger)] == ConfigState::unavailable);
-    // 已装配域必须齐备.
+    // 底盘与 yaw 已填齐; yaw 的安装/零偏为实测值, PID 是**待整定初值**而非实测.
     for (auto domain : {Domain::chassis_lf, Domain::chassis_rf, Domain::chassis_lb,
-                        Domain::chassis_rb, Domain::main_yaw, Domain::pitch}) {
+                        Domain::chassis_rb, Domain::main_yaw}) {
         assert(report.domains[domain_index(domain)] == ConfigState::complete);
     }
+    // pitch 位置环增益仍无依据, 必须保持缺项.
+    assert(report.domains[domain_index(Domain::pitch)] == ConfigState::incomplete);
+    assert(report.has(ConfigIssue::missing_gains));
+    // 单云台 IMU 标定必须存在且来源可追溯, 否则 yaw 不能取得执行资格.
+    assert(config.single_gimbal_imu.has_value());
+    assert(config.single_gimbal_imu->origin == Origin::measured);
+    assert(config.single_gimbal_imu->barrel_axis[1] == -1.0f);
+    // 启动补偿默认关闭; 平滑带只是待整定设置, 不预填经验摩擦幅值.
+    assert(config.single_gimbal_imu->friction_torque_nm == 0.0f);
+    assert(config.single_gimbal_imu->friction_band_nm == 0.05f);
     // report.complete 要求全部 10 个域齐备; 步兵只装 6 个域, 故 complete 必为 false.
     // 可运行判据是 startable, 而不是"哨兵全装"意义上的 complete.
     assert(!report.complete);
@@ -75,6 +85,11 @@ void single_reference_heading() {
     const auto& joint = config.joints[0];
     assert(joint.domain == Domain::main_yaw);
     assert(joint.min_rad && joint.max_rad && *joint.min_rad < *joint.max_rad);
+    // 量程必须绑定到达妙编码器可表示的窗口: 云台有滑环可连续旋转, 若沿用旧工程
+    // GM6020 单圈 ±2.6 rad, 大角度时会被判成 device_fault 并撤输出.
+    const auto yaw_window = config.dm[0].limits->position_max_rad;
+    assert(*joint.max_rad == yaw_window);
+    assert(*joint.min_rad == -yaw_window);
 }
 } // namespace
 

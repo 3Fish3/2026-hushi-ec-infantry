@@ -9,11 +9,12 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(EC_BUILD_STM32F407 "Compile HAL/FreeRTOS adapters (external SDK required)" OFF)
-option(EC_BUILD_SENTINEL_S1 "Build the non-actuating S1-S4 Sentinel board firmware" OFF)
-option(EC_BUILD_SENTINEL_CAPTURE "Build the Sentinel acquisition image (DM parameter/status reads only)" OFF)
-option(EC_BUILD_SENTINEL_APP "Build the Sentinel production APP image (9 DJI + 1 DM, 1 kHz, business protocol)" OFF)
-if(EC_BUILD_SENTINEL_S1 OR EC_BUILD_SENTINEL_CAPTURE OR EC_BUILD_SENTINEL_APP)
-    include(boards/sentinel_f407/sdk.cmake)
+option(EC_BUILD_INFANTRY_S1 "Build the non-actuating S1-S4 Infantry board firmware" OFF)
+option(EC_BUILD_INFANTRY_CAPTURE "Build the Infantry acquisition image (DM parameter/status reads only)" OFF)
+option(EC_BUILD_INFANTRY_APP "Build the Infantry production APP image (9 DJI + 1 DM, 1 kHz, business protocol)" OFF)
+option(EC_BUILD_UART_LINK_TEST "Build standalone USART1/USART6 text echo firmware (no CAN)" OFF)
+if(EC_BUILD_INFANTRY_S1 OR EC_BUILD_INFANTRY_CAPTURE OR EC_BUILD_INFANTRY_APP OR EC_BUILD_UART_LINK_TEST)
+    include(boards/infantry_f407/sdk.cmake)
     set(EC_BUILD_STM32F407 ON)
 endif()
 if(CMAKE_CROSSCOMPILING)
@@ -38,35 +39,35 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(ec_core PRIVATE -Wall -Wextra -Wpedantic -Werror)
 endif()
 
-add_library(ec_sentinel_recording STATIC robots/sentinel/recording/raw_record.cpp)
-target_include_directories(ec_sentinel_recording PUBLIC robots/sentinel/recording)
-target_link_libraries(ec_sentinel_recording PUBLIC ec::core)
-target_compile_options(ec_sentinel_recording PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
+add_library(ec_infantry_recording STATIC robots/infantry/recording/raw_record.cpp)
+target_include_directories(ec_infantry_recording PUBLIC robots/infantry/recording)
+target_link_libraries(ec_infantry_recording PUBLIC ec::core)
+target_compile_options(ec_infantry_recording PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
 
-if(EC_BUILD_TESTS OR EC_BUILD_SENTINEL_CAPTURE)
-    add_library(ec_sentinel_capture STATIC robots/sentinel/capture/capture.cpp)
-    target_include_directories(ec_sentinel_capture PUBLIC robots/sentinel/capture)
-    target_link_libraries(ec_sentinel_capture PUBLIC ec::core ec_sentinel_recording)
-    target_compile_options(ec_sentinel_capture PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
+if(EC_BUILD_TESTS OR EC_BUILD_INFANTRY_CAPTURE)
+    add_library(ec_infantry_capture STATIC robots/infantry/capture/capture.cpp)
+    target_include_directories(ec_infantry_capture PUBLIC robots/infantry/capture)
+    target_link_libraries(ec_infantry_capture PUBLIC ec::core ec_infantry_recording)
+    target_compile_options(ec_infantry_capture PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
 endif()
 
-add_library(ec_sentinel_app STATIC robots/sentinel/app/sentinel_config.cpp
-    robots/sentinel/app/sentinel_app.cpp robots/sentinel/app/sentinel_authority.cpp
-    robots/sentinel/app/sentinel_faults.cpp robots/sentinel/app/sentinel_execution.cpp
-    robots/sentinel/app/sentinel_perception.cpp robots/sentinel/app/sentinel_remote.cpp
-    robots/sentinel/app/sentinel_params.cpp robots/sentinel/app/sentinel_protocol.cpp
-    robots/sentinel/app/sentinel_telemetry.cpp
-    robots/sentinel/app/sentinel_param_apply.cpp robots/sentinel/app/sentinel_cycle.cpp
-    robots/sentinel/app/sentinel_kinematics.cpp)
-target_include_directories(ec_sentinel_app PUBLIC robots/sentinel/app)
-target_link_libraries(ec_sentinel_app PUBLIC ec::core ec_sentinel_recording)
-target_compile_options(ec_sentinel_app PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
+add_library(ec_infantry_app STATIC robots/infantry/app/infantry_config.cpp
+    robots/infantry/app/infantry_app.cpp robots/infantry/app/infantry_authority.cpp
+    robots/infantry/app/infantry_faults.cpp robots/infantry/app/infantry_execution.cpp
+    robots/infantry/app/infantry_perception.cpp robots/infantry/app/infantry_remote.cpp
+    robots/infantry/app/infantry_params.cpp robots/infantry/app/infantry_protocol.cpp
+    robots/infantry/app/infantry_telemetry.cpp
+    robots/infantry/app/infantry_param_apply.cpp robots/infantry/app/infantry_cycle.cpp
+    robots/infantry/app/infantry_kinematics.cpp)
+target_include_directories(ec_infantry_app PUBLIC robots/infantry/app)
+target_link_libraries(ec_infantry_app PUBLIC ec::core ec_infantry_recording)
+target_compile_options(ec_infantry_app PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
 
 if(EC_BUILD_STM32F407)
     add_subdirectory(platform/stm32f407)
 endif()
-if(EC_BUILD_SENTINEL_S1 OR EC_BUILD_SENTINEL_CAPTURE OR EC_BUILD_SENTINEL_APP)
-    add_subdirectory(boards/sentinel_f407)
+if(EC_BUILD_INFANTRY_S1 OR EC_BUILD_INFANTRY_CAPTURE OR EC_BUILD_INFANTRY_APP OR EC_BUILD_UART_LINK_TEST)
+    add_subdirectory(boards/infantry_f407)
 endif()
 if(EC_BUILD_TESTS OR EC_BUILD_EXAMPLES)
     if(CMAKE_CROSSCOMPILING)
@@ -76,19 +77,31 @@ if(EC_BUILD_TESTS OR EC_BUILD_EXAMPLES)
 endif()
 if(EC_BUILD_TESTS)
     enable_testing()
+    add_executable(ec_rtt_tests tests/rtt_tests.cpp
+        boards/infantry_f407/src/board_rtt.cpp boards/infantry_f407/src/board_rtt_format.cpp)
+    target_include_directories(ec_rtt_tests PRIVATE boards/infantry_f407/include)
+    target_compile_options(ec_rtt_tests PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
+    add_test(NAME rtt_contracts COMMAND ec_rtt_tests)
     add_executable(ec_infantry_deployment_tests tests/infantry_deployment_tests.cpp)
-    target_link_libraries(ec_infantry_deployment_tests PRIVATE ec_sentinel_app)
+    target_link_libraries(ec_infantry_deployment_tests PRIVATE ec_infantry_app)
     target_compile_options(ec_infantry_deployment_tests PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror;-UNDEBUG>)
     add_test(NAME infantry_deployment_contracts COMMAND ec_infantry_deployment_tests)
+    # 方向契约: 前进方向 = 云台方向 (云台系 → 机体系旋转, 参考源单一性).
+    add_executable(ec_infantry_direction_tests tests/infantry_direction_tests.cpp)
+    target_link_libraries(ec_infantry_direction_tests PRIVATE ec_infantry_app)
+    target_include_directories(ec_infantry_direction_tests PRIVATE robots/infantry/host)
+    target_compile_options(ec_infantry_direction_tests PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror;-UNDEBUG>)
+    add_test(NAME infantry_direction_contracts COMMAND ec_infantry_direction_tests)
+    set_tests_properties(infantry_direction_contracts PROPERTIES TIMEOUT 30)
     set_tests_properties(infantry_deployment_contracts PROPERTIES TIMEOUT 30)
     add_executable(ec_capture_tests tests/capture_tests.cpp)
-    target_link_libraries(ec_capture_tests PRIVATE ec_sentinel_capture)
+    target_link_libraries(ec_capture_tests PRIVATE ec_infantry_capture)
     target_compile_options(ec_capture_tests PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
-    add_test(NAME sentinel_capture_contracts COMMAND ec_capture_tests)
-    set_tests_properties(sentinel_capture_contracts PROPERTIES TIMEOUT 30)
+    add_test(NAME infantry_capture_contracts COMMAND ec_capture_tests)
+    set_tests_properties(infantry_capture_contracts PROPERTIES TIMEOUT 30)
     add_executable(ec_core_tests tests/core_tests.cpp)
     target_link_libraries(ec_core_tests PRIVATE ec::core Threads::Threads)
-    target_include_directories(ec_core_tests PRIVATE boards/sentinel_f407/include)
+    target_include_directories(ec_core_tests PRIVATE boards/infantry_f407/include)
     target_compile_options(ec_core_tests PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
     add_test(NAME core_contracts COMMAND ec_core_tests)
     set_tests_properties(core_contracts PROPERTIES TIMEOUT 30)
@@ -113,83 +126,83 @@ if(EC_BUILD_TESTS)
     add_test(NAME session_authority_contracts COMMAND ec_session_tests)
     set_tests_properties(session_authority_contracts PROPERTIES TIMEOUT 30)
     # 哨兵正式 APP 配置边界 (O0): 与板级无关, 直接在主机构建.
-    add_executable(ec_sentinel_app_tests tests/sentinel_app_tests.cpp)
-    target_link_libraries(ec_sentinel_app_tests PRIVATE ec_sentinel_app)
-    target_compile_options(ec_sentinel_app_tests PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
-    add_test(NAME sentinel_app_config_contracts COMMAND ec_sentinel_app_tests)
-    set_tests_properties(sentinel_app_config_contracts PROPERTIES TIMEOUT 30)
+    add_executable(ec_infantry_app_tests tests/infantry_app_tests.cpp)
+    target_link_libraries(ec_infantry_app_tests PRIVATE ec_infantry_app)
+    target_compile_options(ec_infantry_app_tests PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
+    add_test(NAME infantry_app_config_contracts COMMAND ec_infantry_app_tests)
+    set_tests_properties(infantry_app_config_contracts PROPERTIES TIMEOUT 30)
     # O1 来源/权限/目标/恢复状态机.
-    add_executable(ec_sentinel_authority_tests tests/sentinel_app_authority_tests.cpp)
-    target_link_libraries(ec_sentinel_authority_tests PRIVATE ec_sentinel_app)
-    target_compile_options(ec_sentinel_authority_tests PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
-    add_test(NAME sentinel_app_authority_contracts COMMAND ec_sentinel_authority_tests)
-    set_tests_properties(sentinel_app_authority_contracts PROPERTIES TIMEOUT 30)
+    add_executable(ec_infantry_authority_tests tests/infantry_app_authority_tests.cpp)
+    target_link_libraries(ec_infantry_authority_tests PRIVATE ec_infantry_app)
+    target_compile_options(ec_infantry_authority_tests PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
+    add_test(NAME infantry_app_authority_contracts COMMAND ec_infantry_authority_tests)
+    set_tests_properties(infantry_app_authority_contracts PROPERTIES TIMEOUT 30)
     # O2 机构执行与真实 CAN 编组.
-    add_executable(ec_sentinel_execution_tests tests/sentinel_app_execution_tests.cpp)
-    target_link_libraries(ec_sentinel_execution_tests PRIVATE ec_sentinel_app)
-    target_compile_options(ec_sentinel_execution_tests PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
-    add_test(NAME sentinel_app_execution_contracts COMMAND ec_sentinel_execution_tests)
-    set_tests_properties(sentinel_app_execution_contracts PROPERTIES TIMEOUT 30)
+    add_executable(ec_infantry_execution_tests tests/infantry_app_execution_tests.cpp)
+    target_link_libraries(ec_infantry_execution_tests PRIVATE ec_infantry_app)
+    target_compile_options(ec_infantry_execution_tests PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
+    add_test(NAME infantry_app_execution_contracts COMMAND ec_infantry_execution_tests)
+    set_tests_properties(infantry_app_execution_contracts PROPERTIES TIMEOUT 30)
     # O3 感知/反馈重构与时钟.
-    add_executable(ec_sentinel_serial_tests tests/sentinel_serial_tests.cpp)
-    target_link_libraries(ec_sentinel_serial_tests PRIVATE ec_sentinel_app)
-    target_compile_options(ec_sentinel_serial_tests PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
-    add_test(NAME sentinel_serial_contracts COMMAND ec_sentinel_serial_tests)
-    set_tests_properties(sentinel_serial_contracts PROPERTIES TIMEOUT 30)
+    add_executable(ec_infantry_serial_tests tests/infantry_serial_tests.cpp)
+    target_link_libraries(ec_infantry_serial_tests PRIVATE ec_infantry_app)
+    target_compile_options(ec_infantry_serial_tests PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
+    add_test(NAME infantry_serial_contracts COMMAND ec_infantry_serial_tests)
+    set_tests_properties(infantry_serial_contracts PROPERTIES TIMEOUT 30)
 
-    add_executable(ec_sentinel_inertial_tests tests/sentinel_inertial_tests.cpp)
-    target_link_libraries(ec_sentinel_inertial_tests PRIVATE ec_sentinel_app)
-    target_include_directories(ec_sentinel_inertial_tests PRIVATE robots/sentinel/host)
-    target_compile_options(ec_sentinel_inertial_tests PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
-    add_test(NAME sentinel_inertial_contracts COMMAND ec_sentinel_inertial_tests)
-    set_tests_properties(sentinel_inertial_contracts PROPERTIES TIMEOUT 30)
+    add_executable(ec_infantry_inertial_tests tests/infantry_inertial_tests.cpp)
+    target_link_libraries(ec_infantry_inertial_tests PRIVATE ec_infantry_app)
+    target_include_directories(ec_infantry_inertial_tests PRIVATE robots/infantry/host)
+    target_compile_options(ec_infantry_inertial_tests PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
+    add_test(NAME infantry_inertial_contracts COMMAND ec_infantry_inertial_tests)
+    set_tests_properties(infantry_inertial_contracts PROPERTIES TIMEOUT 30)
 
-    add_executable(ec_sentinel_replay examples/sentinel_replay.cpp)
-    target_link_libraries(ec_sentinel_replay PRIVATE ec_sentinel_app)
-    target_compile_options(ec_sentinel_replay PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
+    add_executable(ec_infantry_replay examples/infantry_replay.cpp)
+    target_link_libraries(ec_infantry_replay PRIVATE ec_infantry_app)
+    target_compile_options(ec_infantry_replay PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
 
-    add_executable(ec_sentinel_perception_tests tests/sentinel_app_perception_tests.cpp)
-    target_link_libraries(ec_sentinel_perception_tests PRIVATE ec_sentinel_app)
-    target_compile_options(ec_sentinel_perception_tests PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
-    add_test(NAME sentinel_app_perception_contracts COMMAND ec_sentinel_perception_tests)
-    set_tests_properties(sentinel_app_perception_contracts PROPERTIES TIMEOUT 30)
+    add_executable(ec_infantry_perception_tests tests/infantry_app_perception_tests.cpp)
+    target_link_libraries(ec_infantry_perception_tests PRIVATE ec_infantry_app)
+    target_compile_options(ec_infantry_perception_tests PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
+    add_test(NAME infantry_app_perception_contracts COMMAND ec_infantry_perception_tests)
+    set_tests_properties(infantry_app_perception_contracts PROPERTIES TIMEOUT 30)
     # O4 DT7/ch4 全链路与本地操纵映射.
-    add_executable(ec_sentinel_remote_tests tests/sentinel_app_remote_tests.cpp)
-    target_link_libraries(ec_sentinel_remote_tests PRIVATE ec_sentinel_app)
-    target_compile_options(ec_sentinel_remote_tests PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
-    add_test(NAME sentinel_app_remote_contracts COMMAND ec_sentinel_remote_tests)
-    set_tests_properties(sentinel_app_remote_contracts PROPERTIES TIMEOUT 30)
+    add_executable(ec_infantry_remote_tests tests/infantry_app_remote_tests.cpp)
+    target_link_libraries(ec_infantry_remote_tests PRIVATE ec_infantry_app)
+    target_compile_options(ec_infantry_remote_tests PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
+    add_test(NAME infantry_app_remote_contracts COMMAND ec_infantry_remote_tests)
+    set_tests_properties(infantry_app_remote_contracts PROPERTIES TIMEOUT 30)
     # O5 业务协议与会话契约.
-    add_executable(ec_sentinel_protocol_tests tests/sentinel_app_protocol_tests.cpp)
-    target_link_libraries(ec_sentinel_protocol_tests PRIVATE ec_sentinel_app)
-    target_compile_options(ec_sentinel_protocol_tests PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
-    add_test(NAME sentinel_app_protocol_contracts COMMAND ec_sentinel_protocol_tests)
-    set_tests_properties(sentinel_app_protocol_contracts PROPERTIES TIMEOUT 30)
+    add_executable(ec_infantry_protocol_tests tests/infantry_app_protocol_tests.cpp)
+    target_link_libraries(ec_infantry_protocol_tests PRIVATE ec_infantry_app)
+    target_compile_options(ec_infantry_protocol_tests PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
+    add_test(NAME infantry_app_protocol_contracts COMMAND ec_infantry_protocol_tests)
+    set_tests_properties(infantry_app_protocol_contracts PROPERTIES TIMEOUT 30)
     # O6 正式 APP 部署配置: 直接使用板级头文件的同一份表, 核对"无实车参数就不给执行资格".
-    add_executable(ec_sentinel_board_config_tests tests/sentinel_app_board_config_tests.cpp)
-    target_link_libraries(ec_sentinel_board_config_tests PRIVATE ec_sentinel_app)
-    target_include_directories(ec_sentinel_board_config_tests PRIVATE boards/sentinel_f407/include)
-    target_compile_options(ec_sentinel_board_config_tests PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
-    add_test(NAME sentinel_app_board_config_contracts COMMAND ec_sentinel_board_config_tests)
-    set_tests_properties(sentinel_app_board_config_contracts PROPERTIES TIMEOUT 30)
+    add_executable(ec_infantry_board_config_tests tests/infantry_app_board_config_tests.cpp)
+    target_link_libraries(ec_infantry_board_config_tests PRIVATE ec_infantry_app)
+    target_include_directories(ec_infantry_board_config_tests PRIVATE boards/infantry_f407/include)
+    target_compile_options(ec_infantry_board_config_tests PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
+    add_test(NAME infantry_app_board_config_contracts COMMAND ec_infantry_board_config_tests)
+    set_tests_properties(infantry_app_board_config_contracts PROPERTIES TIMEOUT 30)
     # O7 全 APP 闭环组合: 真实应用/执行/感知/协议 + 合成负载与软件总线 (主机侧合成夹具).
-    add_executable(ec_sentinel_system_tests tests/sentinel_app_system_tests.cpp)
-    target_link_libraries(ec_sentinel_system_tests PRIVATE ec_sentinel_app)
-    target_include_directories(ec_sentinel_system_tests PRIVATE robots/sentinel/host)
-    target_compile_options(ec_sentinel_system_tests PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
-    add_test(NAME sentinel_app_system_contracts COMMAND ec_sentinel_system_tests)
-    set_tests_properties(sentinel_app_system_contracts PROPERTIES TIMEOUT 60)
+    add_executable(ec_infantry_system_tests tests/infantry_app_system_tests.cpp)
+    target_link_libraries(ec_infantry_system_tests PRIVATE ec_infantry_app)
+    target_include_directories(ec_infantry_system_tests PRIVATE robots/infantry/host)
+    target_compile_options(ec_infantry_system_tests PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
+    add_test(NAME infantry_app_system_contracts COMMAND ec_infantry_system_tests)
+    set_tests_properties(infantry_app_system_contracts PROPERTIES TIMEOUT 60)
     # APP06 周期编排: 板级与主机共用的薄周期 (原始 DT7 帧/IMU 样本 → 真实 CAN 槽位).
-    add_executable(ec_sentinel_cycle_tests tests/sentinel_app_cycle_tests.cpp)
-    target_link_libraries(ec_sentinel_cycle_tests PRIVATE ec_sentinel_app)
-    target_include_directories(ec_sentinel_cycle_tests PRIVATE robots/sentinel/host)
-    target_compile_options(ec_sentinel_cycle_tests PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
-    add_test(NAME sentinel_app_cycle_contracts COMMAND ec_sentinel_cycle_tests)
-    set_tests_properties(sentinel_app_cycle_contracts PROPERTIES TIMEOUT 30)
+    add_executable(ec_infantry_cycle_tests tests/infantry_app_cycle_tests.cpp)
+    target_link_libraries(ec_infantry_cycle_tests PRIVATE ec_infantry_app)
+    target_include_directories(ec_infantry_cycle_tests PRIVATE robots/infantry/host)
+    target_compile_options(ec_infantry_cycle_tests PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
+    add_test(NAME infantry_app_cycle_contracts COMMAND ec_infantry_cycle_tests)
+    set_tests_properties(infantry_app_cycle_contracts PROPERTIES TIMEOUT 30)
     # 装配层与板级无关: 用同一份源文件在主机上验证安装表/路由/布局拒绝.
-    add_executable(ec_assembly_tests tests/assembly_tests.cpp boards/sentinel_f407/src/board_assembly.cpp
-        boards/sentinel_f407/src/board_inputs.cpp)
-    target_include_directories(ec_assembly_tests PRIVATE boards/sentinel_f407/include)
+    add_executable(ec_assembly_tests tests/assembly_tests.cpp boards/infantry_f407/src/board_assembly.cpp
+        boards/infantry_f407/src/board_inputs.cpp)
+    target_include_directories(ec_assembly_tests PRIVATE boards/infantry_f407/include)
     target_link_libraries(ec_assembly_tests PRIVATE ec::core)
     target_compile_options(ec_assembly_tests PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
     add_test(NAME assembly_routing_contracts COMMAND ec_assembly_tests)
@@ -214,14 +227,14 @@ if(EC_BUILD_TESTS)
     target_compile_options(ec_sil_tests PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
     add_executable(ec_gm6020_ident_sim examples/gm6020_ident_sim.cpp)
     target_link_libraries(ec_gm6020_ident_sim PRIVATE ec::core)
-    target_include_directories(ec_gm6020_ident_sim PRIVATE boards/sentinel_f407/include)
+    target_include_directories(ec_gm6020_ident_sim PRIVATE boards/infantry_f407/include)
     add_executable(ec_gm6020_bench_tests tests/gm6020_bench_tests.cpp)
     target_link_libraries(ec_gm6020_bench_tests PRIVATE ec::core)
-    target_include_directories(ec_gm6020_bench_tests PRIVATE boards/sentinel_f407/include)
+    target_include_directories(ec_gm6020_bench_tests PRIVATE boards/infantry_f407/include)
     add_test(NAME gm6020_bench_contracts COMMAND ec_gm6020_bench_tests)
     add_executable(ec_uart_frame_tests tests/uart_frame_tests.cpp)
     target_link_libraries(ec_uart_frame_tests PRIVATE ec::core)
-    target_include_directories(ec_uart_frame_tests PRIVATE boards/sentinel_f407/include)
+    target_include_directories(ec_uart_frame_tests PRIVATE boards/infantry_f407/include)
     target_compile_options(ec_uart_frame_tests PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
     add_test(NAME uart_frame_contracts COMMAND ec_uart_frame_tests)
     # Python 侧的契约测试是验收的一部分: 缺解释器时必须显式失败或明确报告 partial,
@@ -238,18 +251,18 @@ if(EC_BUILD_TESTS)
             "NOT registered. This configuration is PARTIAL and must not be reported as full pass.")
     endif()
     if(Python3_Interpreter_FOUND)
-        add_test(NAME sentinel_capture_client_contracts COMMAND "${Python3_EXECUTABLE}"
+        add_test(NAME infantry_capture_client_contracts COMMAND "${Python3_EXECUTABLE}"
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/capture_client_tests.py" "$<TARGET_FILE:ec_capture_tests>")
-        set_tests_properties(sentinel_capture_client_contracts PROPERTIES TIMEOUT 30)
-        add_test(NAME sentinel_raw_calibration_contracts COMMAND "${Python3_EXECUTABLE}"
-            "${CMAKE_CURRENT_SOURCE_DIR}/tests/sentinel_raw_tests.py" "$<TARGET_FILE:ec_capture_tests>" "$<TARGET_FILE:ec_sentinel_replay>")
-        set_tests_properties(sentinel_raw_calibration_contracts PROPERTIES TIMEOUT 60)
+        set_tests_properties(infantry_capture_client_contracts PROPERTIES TIMEOUT 30)
+        add_test(NAME infantry_raw_calibration_contracts COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/infantry_raw_tests.py" "$<TARGET_FILE:ec_capture_tests>" "$<TARGET_FILE:ec_infantry_replay>")
+        set_tests_properties(infantry_raw_calibration_contracts PROPERTIES TIMEOUT 60)
         add_test(NAME board_monitor_contracts COMMAND "${Python3_EXECUTABLE}"
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/board_monitor_tests.py" "$<TARGET_FILE:ec_uart_frame_tests>")
-        add_test(NAME sentinel_host_client_contracts COMMAND "${Python3_EXECUTABLE}"
-            "${CMAKE_CURRENT_SOURCE_DIR}/tests/sentinel_host_client_tests.py"
-            "$<TARGET_FILE:ec_sentinel_app_host>")
-        set_tests_properties(sentinel_host_client_contracts PROPERTIES TIMEOUT 120)
+        add_test(NAME infantry_host_client_contracts COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/infantry_host_client_tests.py"
+            "$<TARGET_FILE:ec_infantry_app_host>")
+        set_tests_properties(infantry_host_client_contracts PROPERTIES TIMEOUT 120)
         add_test(NAME motor_bench_client_contracts COMMAND "${Python3_EXECUTABLE}"
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/motor_bench_tests.py" "$<TARGET_FILE:ec_gm6020_bench_tests>")
         set_tests_properties(motor_bench_client_contracts PROPERTIES TIMEOUT 20 SKIP_RETURN_CODE 77)
@@ -262,11 +275,11 @@ if(EC_BUILD_TESTS)
     if(Python3_Interpreter_FOUND)
         # 串口载荷与假 SWD 内存必须得到同一份逻辑值; 另含只读自检 (不连物理探针).
         add_test(NAME monitor_swd_contracts COMMAND "${Python3_EXECUTABLE}"
-            "${CMAKE_CURRENT_SOURCE_DIR}/boards/sentinel_f407/tools/monitor_swd.py"
+            "${CMAKE_CURRENT_SOURCE_DIR}/boards/infantry_f407/tools/monitor_swd.py"
             --verify "${CMAKE_CURRENT_BINARY_DIR}/monitor_artifacts" --json)
         set_tests_properties(monitor_swd_contracts PROPERTIES DEPENDS monitor_registry_contracts TIMEOUT 30)
         add_test(NAME monitor_swd_selftest COMMAND "${Python3_EXECUTABLE}"
-            "${CMAKE_CURRENT_SOURCE_DIR}/boards/sentinel_f407/tools/monitor_swd.py" --self-test --json)
+            "${CMAKE_CURRENT_SOURCE_DIR}/boards/infantry_f407/tools/monitor_swd.py" --self-test --json)
         set_tests_properties(monitor_swd_selftest PROPERTIES TIMEOUT 30)
         # 文档一致性: 被跟踪 Markdown 里的本地链接必须指向被跟踪文件.
         add_test(NAME gm6020_identification_contracts COMMAND "${Python3_EXECUTABLE}"
@@ -293,10 +306,10 @@ if(EC_BUILD_EXAMPLES)
     target_link_libraries(ec_app_example PRIVATE ec::core)
     target_compile_options(ec_app_example PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
     # O5 主机软件后端: 离线运行正式 APP 并说业务协议, 不打开串口/CAN.
-    add_executable(ec_sentinel_app_host examples/sentinel_app_host_link.cpp)
-    target_link_libraries(ec_sentinel_app_host PRIVATE ec_sentinel_app)
-    target_include_directories(ec_sentinel_app_host PRIVATE robots/sentinel/host)
-    target_compile_options(ec_sentinel_app_host PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
+    add_executable(ec_infantry_app_host examples/infantry_app_host_link.cpp)
+    target_link_libraries(ec_infantry_app_host PRIVATE ec_infantry_app)
+    target_include_directories(ec_infantry_app_host PRIVATE robots/infantry/host)
+    target_compile_options(ec_infantry_app_host PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
     if(EC_BUILD_TESTS)
         add_test(NAME single_axis_example COMMAND ec_single_axis_example)
         add_test(NAME app_assembly_example COMMAND ec_app_example)
@@ -314,17 +327,17 @@ if(EC_BUILD_TESTS)
     # 注册清单自检: 期望的测试名一个都不能少 (漏注册会让"通过"看起来依然完整).
     # 放在文件末尾, 因此必须等示例测试也注册完成后再核对.
     set(_ec_expected_tests infantry_deployment_contracts
-        sentinel_capture_contracts core_contracts control_contracts axis_contracts dm_contracts
-        session_authority_contracts sentinel_app_config_contracts
-        sentinel_app_authority_contracts sentinel_app_execution_contracts
-        sentinel_app_perception_contracts sentinel_serial_contracts sentinel_app_remote_contracts sentinel_app_cycle_contracts
-        sentinel_app_protocol_contracts sentinel_app_board_config_contracts sentinel_app_system_contracts
+        infantry_capture_contracts core_contracts control_contracts axis_contracts dm_contracts
+        session_authority_contracts infantry_app_config_contracts
+        infantry_app_authority_contracts infantry_app_execution_contracts
+        infantry_app_perception_contracts infantry_serial_contracts infantry_app_remote_contracts infantry_app_cycle_contracts
+        infantry_app_protocol_contracts infantry_app_board_config_contracts infantry_app_system_contracts
         assembly_routing_contracts dr16_input_contracts
         attitude_contracts omni_kinematics_contracts gm6020_bench_contracts uart_frame_contracts
         monitor_registry_contracts sil_contracts)
     if(Python3_Interpreter_FOUND)
-        list(APPEND _ec_expected_tests sentinel_capture_client_contracts sentinel_raw_calibration_contracts board_monitor_contracts
-            sentinel_host_client_contracts motor_bench_client_contracts
+        list(APPEND _ec_expected_tests infantry_capture_client_contracts infantry_raw_calibration_contracts board_monitor_contracts
+            infantry_host_client_contracts motor_bench_client_contracts
             monitor_swd_contracts monitor_swd_selftest doc_link_contracts)
     endif()
     if(EC_BUILD_EXAMPLES)

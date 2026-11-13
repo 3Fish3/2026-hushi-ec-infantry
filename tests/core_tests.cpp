@@ -403,23 +403,23 @@ void dr16_contracts() {
 
 void board_observation_contracts() {
     using namespace ec::drivers;
-    CHECK(ec::sentinel::dji_mode(1, 0x208) == DjiMode::gm6020_current);
+    CHECK(ec::infantry::dji_mode(1, 0x208) == DjiMode::gm6020_current);
     for (std::uint16_t id = 0x201; id <= 0x204; ++id) {
-        CHECK(ec::sentinel::dji_mode(1, id) == DjiMode::c620_current);
+        CHECK(ec::infantry::dji_mode(1, id) == DjiMode::c620_current);
     }
-    CHECK(ec::sentinel::dji_mode(2, 0x20a) == DjiMode::gm6020_current);
+    CHECK(ec::infantry::dji_mode(2, 0x20a) == DjiMode::gm6020_current);
     for (std::uint16_t id = 0x205; id <= 0x206; ++id) {
-        CHECK(ec::sentinel::dji_mode(2, id) == DjiMode::c620_current);
+        CHECK(ec::infantry::dji_mode(2, id) == DjiMode::c620_current);
     }
-    CHECK(ec::sentinel::dji_mode(2, 0x207) == DjiMode::c610_current);
+    CHECK(ec::infantry::dji_mode(2, 0x207) == DjiMode::c610_current);
     // 迁移后两个方向都不能静默退回到旧总线: 同 ID 换总线即未映射.
-    CHECK(!ec::sentinel::dji_mode(2, 0x201));
-    CHECK(!ec::sentinel::dji_mode(2, 0x208));
-    CHECK(!ec::sentinel::dji_mode(1, 0x20a));
-    CHECK(!ec::sentinel::dji_mode(1, 0x205));
-    CHECK(!ec::sentinel::dji_mode(3, 0x207));
+    CHECK(!ec::infantry::dji_mode(2, 0x201));
+    CHECK(!ec::infantry::dji_mode(2, 0x208));
+    CHECK(!ec::infantry::dji_mode(1, 0x20a));
+    CHECK(!ec::infantry::dji_mode(1, 0x205));
+    CHECK(!ec::infantry::dji_mode(3, 0x207));
     ec::transport::CanFrame frame{0x207, 8, {0, 0, 0x03, 0xe8, 0, 0, 0xaa, 0}};
-    auto decoded = decode_dji(*ec::sentinel::dji_mode(2, frame.id), frame);
+    auto decoded = decode_dji(*ec::infantry::dji_mode(2, frame.id), frame);
     CHECK(decoded && !decoded->temperature_c);
     EcCanDiag diag{};
     static_assert(std::is_same_v<decltype(diag.last_speed_rad_s), float>);
@@ -428,13 +428,13 @@ void board_observation_contracts() {
     for (auto hi : {std::uint8_t{0x7f}, std::uint8_t{0x80}}) {
         frame.data[2] = hi;
         frame.data[3] = hi == 0x7f ? 0xff : 0;
-        decoded = decode_dji(*ec::sentinel::dji_mode(2, frame.id), frame);
+        decoded = decode_dji(*ec::infantry::dji_mode(2, frame.id), frame);
         CHECK(decoded);
         diag.last_speed_rad_s = decoded->rotor_speed_rad_s;
         CHECK(std::isfinite(diag.last_speed_rad_s) && std::fabs(diag.last_speed_rad_s) > 3400);
     }
     frame.id = 0x206;
-    decoded = decode_dji(*ec::sentinel::dji_mode(2, frame.id), frame);
+    decoded = decode_dji(*ec::infantry::dji_mode(2, frame.id), frame);
     CHECK(decoded && decoded->temperature_c == 0xaa);
 
     // 模拟 3 秒无 IDLE 的 115200 8N1 输入、同速 TX 和每 10 ms 的有界任务搬运.
@@ -442,8 +442,8 @@ void board_observation_contracts() {
     ec::transport::ByteTxQueue<512> tx;
     std::uint32_t received = 0, echoed = 0;
     const auto poll = [&] {
-        std::uint8_t tmp[ec::sentinel::uart1_copy_chunk]{};
-        for (std::size_t budget = ec::sentinel::uart1_poll_budget; budget != 0;) {
+        std::uint8_t tmp[ec::infantry::uart1_copy_chunk]{};
+        for (std::size_t budget = ec::infantry::uart1_poll_budget; budget != 0;) {
             const auto room = tx.free();
             const auto limit = room < sizeof(tmp) ? room : sizeof(tmp);
             const auto n = rx.read({tmp, limit < budget ? limit : budget});

@@ -10,8 +10,8 @@ import tempfile
 import unittest
 
 root = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(root / 'boards/sentinel_f407/tools'))
-import sentinel_capture as cap
+sys.path.insert(0, str(root / 'boards/infantry_f407/tools'))
+import infantry_capture as cap
 from board_monitor import Decoder, encode_frame
 
 exe = Path(sys.argv.pop(1))
@@ -203,7 +203,7 @@ class Tests(unittest.TestCase):
         old = bytearray(summary())
         old[0] = 1
         del old[96:104]
-        with self.assertRaisesRegex(cap.CaptureProtocolError, r'schema=1 .*length=184 .*sentinel_capture.bin'):
+        with self.assertRaisesRegex(cap.CaptureProtocolError, r'schema=1 .*length=184 .*infantry_capture.bin'):
             cap.decode_page(old)
 
     def test_log_mark_export_no_overwrite(self):

@@ -9,7 +9,7 @@
 #include <limits>
 #include <vector>
 namespace {
-namespace cap = ec::sentinel::capture;
+namespace cap = ec::infantry::capture;
 void check(bool ok, int line) { if (!ok) { std::fprintf(stderr, "capture check failed at %d\n", line); std::exit(1); } }
 #define CHECK(...) check(static_cast<bool>((__VA_ARGS__)), __LINE__)
 struct Tx final : ec::transport::CanTx {
@@ -42,7 +42,7 @@ void golden() {
     }
 }
 void raw_contracts() {
-    namespace raw = ec::sentinel::recording;
+    namespace raw = ec::infantry::recording;
     raw::Recorder recorder;
     std::array<std::uint8_t, 12> request{1, 1, 2, 0};
     raw::put32(request, 4, 123); raw::put32(request, 8, 200000);
@@ -98,7 +98,7 @@ void raw_contracts() {
     for (const auto& frame : tx.frames) { CHECK(cap::allowed_read(frame) && frame.data[2] == 0xcc); }
 }
 void raw_golden() {
-    namespace raw = ec::sentinel::recording;
+    namespace raw = ec::infantry::recording;
     raw::Record record{raw::Kind::gyro, 0, 3, 0, 4, 0xfffffff0u, 20, 1, 600, 9};
     record.data[0] = std::bit_cast<std::uint32_t>(1.25f);
     record.data[1] = std::bit_cast<std::uint32_t>(-0.5f);
@@ -108,7 +108,7 @@ void raw_golden() {
     std::puts("");
 }
 int raw_replay(const char* path) {
-    namespace raw = ec::sentinel::recording;
+    namespace raw = ec::infantry::recording;
     std::ifstream file(path, std::ios::binary);
     std::array<char, 8> magic{}; file.read(magic.data(), magic.size());
     CHECK(std::memcmp(magic.data(), "ECRAW1\r\n", 8) == 0);

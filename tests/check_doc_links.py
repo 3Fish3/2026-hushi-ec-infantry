@@ -1,4 +1,4 @@
-"""文档本地链接检查: 所有被跟踪 Markdown 里的相对 .md 链接都必须指向被跟踪文件.
+"""文档本地链接检查: 工作区 Markdown 里的相对 .md 链接必须指向工作区文件.
 
 仓库根由脚本自身位置推导, 不依赖当前工作目录: 契约测试必须能在仓库外的构建目录里运行.
 """
@@ -7,9 +7,12 @@ import subprocess
 from pathlib import Path
 
 root = Path(__file__).resolve().parent.parent
-raw = subprocess.run(['git', '-c', 'core.quotepath=false', '-C', str(root), 'ls-files', '-z', '*.md'],
+# 同时覆盖未暂存的重命名与新增文档; 不要求先改变 Git 索引才能检查工作区链接.
+raw = subprocess.run(['git', '-c', 'core.quotepath=false', '-C', str(root), 'ls-files',
+                      '--cached', '--others', '--exclude-standard', '--deduplicate', '-z', '*.md'],
                      capture_output=True, check=True).stdout
-files = [item.decode('utf-8') for item in raw.split(b'\0') if item]
+files = [item.decode('utf-8') for item in raw.split(b'\0')
+         if item and (root / item.decode('utf-8')).is_file()]
 tracked = {name.replace('\\', '/') for name in files}
 bad = []
 checked = 0

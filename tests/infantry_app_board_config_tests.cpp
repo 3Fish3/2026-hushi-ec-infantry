@@ -1,0 +1,262 @@
+// 正式 APP 部署配置的离线负向检查 (O6).
+// 直接使用板级头文件里的**同一份**部署配置表: 固件与测试因此不会分叉.
+// 断言的是"没有实车参数时不给执行资格"和"镜像里不含臆测值", 不是实机行为.
+#include "board_app_config.hpp"
+#include "board_can_queue.hpp"
+#include "board_spi_transfer.hpp"
+#include "board_assembly.hpp"
+#include "board_role.hpp"
+#include "infantry_app.hpp"
+#include "infantry_types.hpp"
+#include <array>
+#include <cmath>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+
+namespace {
+int failures = 0;
+void check(bool condition, const char* text, int line) {
+    if (condition) { return; }
+    std::printf("line %d: %s\n", line, text);
+    ++failures;
+}
+#define CHECK(expr) check((expr), #expr, __LINE__)
+
+using namespace ec::infantry;
+using namespace ec::infantry::app;
+
+void test_deployment_config_is_not_invented() {
+    const auto config = board::deployment_config();
+    CHECK(config.kind == ConfigKind::real_deployment);
+    const auto shared = infantry_deployment_config();
+    for (std::size_t i = 0; i < dji_slot_count; ++i) {
+        CHECK(config.dji[i].installed == shared.dji[i].installed);
+        CHECK(config.dji[i].domain == shared.dji[i].domain);
+        CHECK(config.dji[i].bus == shared.dji[i].bus);
+        CHECK(config.dji[i].device_id == shared.dji[i].device_id);
+        CHECK(config.dji[i].mode == shared.dji[i].mode);
+    }
+    CHECK(config.dm[0].installed && config.dm[0].domain == Domain::main_yaw);
+    CHECK(config.dm[0].bus == 1 && config.dm[0].can_id == 5 && config.dm[0].master_id == 5);
+    // IMU 安装/零偏来自实测; 但绝不能是合成来源.
+    CHECK(config.single_gimbal_imu.has_value());
+    CHECK(config.single_gimbal_imu->origin == Origin::measured);
+    const auto mapping = board::deployment_mapping();
+    CHECK(mapping.infantry_controls);
+    // 云台 yaw 已放开摇杆控制; 平移/自转/键鼠量程仍未实测, 必须保持为 0.
+    CHECK(mapping.chassis_vx_max_mps == 0 && mapping.chassis_wz_max_rad_s == 0);
+    CHECK(mapping.keyboard_chassis_speed_mps == 0);
+    CHECK(mapping.yaw_rate_max_rad_s > 0.0f);
+    // 软件时序策略必须齐备, 否则应用连"报告缺项"都不成立.
+    CHECK(config.timing.control_dt_s == board::app_control_dt_s);
+    CHECK(config.timing.target_ttl.valid());
+    CHECK(config.timing.remote_ttl.valid());
+    CHECK(config.timing.imu_ttl.valid());
+    CHECK(config.timing.host_link_ttl.valid());
+    // 部署时限必须就是板级常量本身: 漏传会造成"无效时限 = 永不老化".
+    CHECK(config.timing.host_link_ttl.ms == board::app_host_link_ttl_ms);
+    CHECK(config.timing.max_dt_s.has_value());
+    CHECK(*config.timing.max_dt_s > config.timing.control_dt_s);
+}
+
+void test_deployment_audience_rejects_and_grants_nothing() {
+    const auto config = board::deployment_config();
+    const auto report = validate(config, ConfigAudience::deployment);
+    CHECK(report.kind == ConfigKind::real_deployment);
+    CHECK(!report.complete);
+    CHECK(report.has(ConfigIssue::missing_timing) == false);
+    // yaw 的 IMU 标定已填入 (实测), 底盘四轮齐备; pitch 位置环仍缺.
+    CHECK(report.domains[domain_index(Domain::main_yaw)] == ConfigState::complete);
+    CHECK(report.domains[domain_index(Domain::pitch)] == ConfigState::incomplete);
+    CHECK(report.domains[domain_index(Domain::fire_yaw)] == ConfigState::unavailable);
+    for (std::size_t i = 0; i < chassis_wheel_count; ++i) {
+        CHECK(report.domains[i] == ConfigState::complete);
+    }
+    InfantryApp app(config, ConfigAudience::deployment);
+    CHECK(app.startable());
+    app.update(ec::Tick{1001}, AppInputs{});
+    for (const auto& execution : app.snapshot().executions) {
+        CHECK(!execution.execute);
+        CHECK(!execution.adopted_target);
+    }
+    CHECK(!app.snapshot().launch_allowed);
+    CHECK(app.snapshot().permission.source == Source::none);
+    CHECK(!app.snapshot().permission.authority);
+}
+
+void test_synthetic_config_is_rejected_in_deployment() {
+    // 合成夹具只能在离线用途使用: 部署用途必须拒绝, 不允许"顺手用夹具顶替实车配置".
+    const auto synthetic = synthetic_config();
+    const auto report = validate(synthetic, ConfigAudience::deployment);
+    CHECK(report.has(ConfigIssue::synthetic_value_in_deployment));
+    CHECK(!report.startable);
+    InfantryApp app(synthetic, ConfigAudience::deployment);
+    CHECK(!app.startable());
+}
+
+void test_deployment_summary_matches_config() {
+    const auto summary = board::summarize(board::deployment_config());
+    CHECK(summary.magic == board::deployment_summary_magic);
+    CHECK(summary.layout == board::deployment_summary_layout);
+    CHECK(summary.kind == static_cast<std::uint32_t>(ConfigKind::real_deployment));
+    CHECK(summary.installed_dji == 5);
+    CHECK(summary.installed_dm == 1);
+    CHECK(summary.synthetic_values == 0);
+    CHECK(summary.unknown_origin_installed == 0);
+    // 镜像里声明的容量必须覆盖已验证接线与九 DJI + 一 DM 的应用槽位.
+    CHECK(summary.dji_capacity == dji_slot_count);
+    CHECK(summary.harness_dji == 5);
+    CHECK(summary.harness_dm == 1);
+    CHECK(ec_app_deployment_summary.magic == summary.magic);
+    CHECK(ec_app_deployment_summary.harness_dji == summary.harness_dji);
+}
+
+void test_known_harness_is_consistent_with_app_capacity() {
+    // 已验证接线是"待确认清单的机器可读形式", 不是配置: 这里只核对它与应用容量、
+    // 与各协议支持的设备 ID 范围一致, 不把设备映射到机构.
+    CHECK(board::known_dji_harness.size() == 5);
+    for (std::size_t i = 0; i < board::known_dji_harness.size(); ++i) {
+        const auto& entry = board::known_dji_harness[i];
+        CHECK(entry.bus == 1 || entry.bus == 2);
+        const auto protocol = ec::drivers::dji_protocol(entry.mode);
+        CHECK(protocol.has_value());
+        CHECK(entry.device_id >= 1 && entry.device_id <= protocol->count);
+        // 同总线同反馈 ID 不得重复: 重复会让两个槽位争同一帧. 反馈 ID 由协议基准加
+        // 设备 ID 决定, 所以不同协议下同一个 device_id 并不冲突 (如 CAN2 的 C620 ID6
+        // 反馈 0x206 与 GM6020 ID6 反馈 0x20a).
+        for (std::size_t j = i + 1; j < board::known_dji_harness.size(); ++j) {
+            const auto& other = board::known_dji_harness[j];
+            const auto other_protocol = ec::drivers::dji_protocol(other.mode);
+            CHECK(other_protocol.has_value());
+            CHECK(other.bus != entry.bus ||
+                other_protocol->rx_base + other.device_id != protocol->rx_base + entry.device_id);
+        }
+    }
+    // DJI 设备: CAN1 四轮, CAN2 pitch; 达妙 yaw 不在这张 DJI 表中.
+    std::size_t bus1 = 0, bus2 = 0;
+    for (const auto& entry : board::known_dji_harness) {
+        (entry.bus == 1 ? bus1 : bus2) += 1;
+    }
+    CHECK(bus1 == 4);
+    CHECK(bus2 == 1);
+}
+
+void test_control_step_boundaries() {
+    // 首次周期: 用明确的初始化步长; Tick=0 是合法时刻, 不能当"从未初始化".
+    const auto first = board::app_control_step(0u, 0u, false);
+    CHECK(first.dt_s == board::app_control_dt_s);
+    CHECK(!first.overrun);
+    // 真实前进: 1/2/5/20 ms 都交出真实值, 超期只体现在统计标记.
+    CHECK(board::app_control_step(1001u, 1000u, true).dt_s == 0.001f);
+    CHECK(std::fabs(board::app_control_step(1002u, 1000u, true).dt_s - 0.002f) < 1.0e-6f);
+    CHECK(std::fabs(board::app_control_step(1005u, 1000u, true).dt_s - 0.005f) < 1.0e-6f);
+    CHECK(!board::app_control_step(1005u, 1000u, true).overrun);
+    const auto over = board::app_control_step(1020u, 1000u, true);
+    CHECK(std::fabs(over.dt_s - 0.020f) < 1.0e-6f);
+    CHECK(over.overrun);
+    // 重复时刻/时间回退: dt=0 交给既有拒绝/不推进路径, 不用标称周期冒充正常采样.
+    CHECK(board::app_control_step(1000u, 1000u, true).dt_s == 0.0f);
+    CHECK(board::app_control_step(999u, 1000u, true).dt_s == 0.0f);
+    CHECK(!board::app_control_step(999u, 1000u, true).overrun);
+    // 回绕: 半个回绕窗口内的前进是真实步长, 跨越窗口的倒退是回退.
+    const auto wrapped_forward = board::app_control_step(5u, 0xfffffff8u, true);
+    CHECK(std::fabs(wrapped_forward.dt_s - 0.013f) < 1.0e-6f);
+    CHECK(wrapped_forward.overrun);
+    CHECK(board::app_control_step(0xfffffff8u, 5u, true).dt_s == 0.0f);
+}
+
+void test_micro_time_and_can_fairness() {
+    CHECK(std::fabs(board::app_control_step_us(2750, 1000, true).dt_s - 0.00175f) < 1e-7f);
+    CHECK(board::app_control_step_us(1000, 1000, true).dt_s == 0.0f);
+    CHECK(board::app_control_step_us(900, 1000, true).dt_s == 0.0f);
+    CHECK(std::fabs(board::app_control_step_us(1000, 0xfffffc18u, true).dt_s - 0.002f) < 1e-7f);
+    struct Lock { int enter() noexcept { return 0; } void exit(int) noexcept {} } lock;
+    board::CanInbox<2, Lock> queue{lock};
+    ec::drivers::StampedCanFrame frame{};
+    frame.bus = 2;
+    frame.frame.id = 100;
+    CHECK(queue.try_push(frame) == ec::PushResult::accepted);
+    frame.frame.id = 101;
+    CHECK(queue.try_push(frame) == ec::PushResult::accepted);
+    CHECK(queue.try_push(frame) != ec::PushResult::accepted);
+    frame.bus = 1;
+    frame.frame.id = 1;
+    frame.received_us = {12345};
+    CHECK(queue.try_push(frame) == ec::PushResult::accepted);
+    const auto first = queue.try_pop();
+    CHECK(first && first->bus == 1 && first->received_us.us == 12345);
+    CHECK(queue.try_pop()->frame.id == 100);
+    CHECK(queue.try_pop()->frame.id == 101);
+    CHECK(!queue.try_pop());
+}
+
+void test_spi_deadline() {
+    struct Io {
+        std::uint32_t us{};
+        bool stalled_tx{}, stalled_rx{}, stalled_busy{};
+        std::uint8_t value{};
+        unsigned writes{};
+        ec::MicroTick now() noexcept { return {us++}; }
+        bool tx_ready() const noexcept { return !stalled_tx; }
+        bool rx_ready() const noexcept { return !stalled_rx; }
+        bool busy() const noexcept { return stalled_busy; }
+        bool error() const noexcept { return false; }
+        void write(std::uint8_t v) noexcept { value = v; ++writes; }
+        std::uint8_t read() const noexcept { return value; }
+    };
+    std::array<std::uint8_t, 3> tx{1, 2, 3}, rx{};
+    Io good;
+    CHECK(board::transfer_spi(good, tx, rx, 100) && tx == rx);
+    for (int failure = 0; failure < 3; ++failure) {
+        Io bad;
+        bad.stalled_tx = failure == 0;
+        bad.stalled_rx = failure == 1;
+        bad.stalled_busy = failure == 2;
+        CHECK(!board::transfer_spi(bad, tx, rx, 100));
+        CHECK(bad.us <= 102); // 总事务截止, 不是每个字节各等 100 us
+    }
+    Io wrap;
+    wrap.us = 0xfffffffcu;
+    CHECK(board::transfer_spi(wrap, tx, rx, 100));
+}
+
+void test_role_budgets_are_consistent() {
+    // 正式 APP 的收帧预算必须能覆盖九 DJI + 一 DM 的 1 kHz 反馈 (10 帧/ms):
+    // 单周期上限 / 周期 ≥ 输入率, 且队列容量覆盖数个周期的服务空窗.
+    using namespace ec::infantry;
+    constexpr double input_frames_per_ms = 10.0;
+    constexpr double app_capacity_per_ms = static_cast<double>(app_can_frames_per_cycle) /
+        static_cast<double>(app_control_period_ms);
+    static_assert(app_capacity_per_ms >= input_frames_per_ms,
+        "APP 收帧预算必须覆盖 1 kHz × 10 设备的输入率");
+    static_assert(app_can_queue_capacity >= static_cast<std::size_t>(input_frames_per_ms * 4),
+        "APP 队列必须覆盖数个周期的服务空窗");
+    static_assert(can_watch_capacity >= dji_install_max + dm_install_max,
+        "在线跟踪表必须覆盖全部装配槽位");
+    CHECK(app_control_period_ms == 1);
+    CHECK(app_link_period_ms == 10);
+    CHECK(dji_install_max == static_cast<std::size_t>(dji_slot_count));
+    // 默认角色不因 APP 预算而改变.
+    CHECK(can_queue_capacity >= 32);
+    CHECK(can_watch_capacity >= 17);
+}
+} // 命名空间
+
+int main() {
+    test_deployment_config_is_not_invented();
+    test_deployment_audience_rejects_and_grants_nothing();
+    test_synthetic_config_is_rejected_in_deployment();
+    test_deployment_summary_matches_config();
+    test_known_harness_is_consistent_with_app_capacity();
+    test_control_step_boundaries();
+    test_micro_time_and_can_fairness();
+    test_spi_deadline();
+    test_role_budgets_are_consistent();
+    if (failures != 0) {
+        std::printf("%d check(s) failed\n", failures);
+        return EXIT_FAILURE;
+    }
+    std::printf("board deployment config contracts passed\n");
+    return EXIT_SUCCESS;
+}

@@ -65,9 +65,9 @@ int main(int argc, char** argv) {
     io.can.rx_frames=5000; io.can.last_id=0x208; io.can.last_speed_rad_s=104.71976f;
     io.usart3.noise=7;
     std::array<std::uint32_t,14> link{}; link[0]=111; link[13]=9;
-    std::array<std::uint8_t,ec::sentinel::monitor_payload_size> payload{};
-    CHECK(ec::sentinel::encode_monitor_snapshot(s,io,16,link,{payload.data(),1})==0);
-    CHECK(ec::sentinel::encode_monitor_snapshot(s,io,16,link,payload)==ec::sentinel::monitor_payload_size);
+    std::array<std::uint8_t,ec::infantry::monitor_payload_size> payload{};
+    CHECK(ec::infantry::encode_monitor_snapshot(s,io,16,link,{payload.data(),1})==0);
+    CHECK(ec::infantry::encode_monitor_snapshot(s,io,16,link,payload)==ec::infantry::monitor_payload_size);
     if(argc==2 && std::string_view(argv[1])=="--vector") {
         std::array<std::uint8_t,uart_wire_max> wire{};
         const auto n=encode_uart_frame(0x81,0x7e7d,payload,wire);

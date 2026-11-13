@@ -19,7 +19,7 @@ struct Bus final : ec::transport::CanTx {
         return ec::transport::SendResult::accepted;
     }
 };
-void feedback(ec::sentinel::Gm6020Bench& bench,float angle,float velocity,std::uint32_t ms) {
+void feedback(ec::infantry::Gm6020Bench& bench,float angle,float velocity,std::uint32_t ms) {
     constexpr float tau=2*std::numbers::pi_v<float>;
     auto turns=std::fmod(angle,tau);if(turns<0){turns+=tau;}
     const auto encoder=static_cast<unsigned>(turns*8192/tau)%8192;
@@ -46,12 +46,12 @@ int main() {
             if (!(input>>d_tau) || !std::isfinite(kd+d_tau) || kd<0 || d_tau<0) {return 2;}
             if (input>>encoder_velocity && encoder_velocity!=0 && encoder_velocity!=1) {return 2;}
         }
-        ec::sentinel::Gm6020Bench bench{4};Bus bus;
+        ec::infantry::Gm6020Bench bench{4};Bus bus;
         ec::drivers::DjiTxGroup group{bus,1,1,{20},bench.group_devices()};
         for(std::uint32_t ms=0;ms<5;++ms){feedback(bench,0,0,ms);}
         if(!bench.set_reference({4})){return 3;}
-        ec::sentinel::BenchSettings cfg{};
-        cfg.mode=static_cast<ec::sentinel::BenchMode>(mode);cfg.target=static_cast<float>(target);
+        ec::infantry::BenchSettings cfg{};
+        cfg.mode=static_cast<ec::infantry::BenchMode>(mode);cfg.target=static_cast<float>(target);
         cfg.velocity_kp=static_cast<float>(kp);cfg.velocity_ki=static_cast<float>(ki);
         cfg.position_kp=static_cast<float>(pk);cfg.feedback_alpha=static_cast<float>(alpha);
         cfg.velocity_kd=static_cast<float>(kd);cfg.derivative_tau_s=static_cast<float>(d_tau);
