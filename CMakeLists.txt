@@ -97,6 +97,11 @@ if(EC_BUILD_TESTS)
     target_compile_options(ec_infantry_direction_tests PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror;-UNDEBUG>)
     add_test(NAME infantry_direction_contracts COMMAND ec_infantry_direction_tests)
     set_tests_properties(infantry_direction_contracts PROPERTIES TIMEOUT 30)
+    add_executable(ec_infantry_sweep_capture_tests tests/infantry_sweep_capture_tests.cpp)
+    target_link_libraries(ec_infantry_sweep_capture_tests PRIVATE ec_infantry_app)
+    target_compile_options(ec_infantry_sweep_capture_tests PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror;-UNDEBUG>)
+    add_test(NAME infantry_sweep_capture_contracts COMMAND ec_infantry_sweep_capture_tests)
+    set_tests_properties(infantry_sweep_capture_contracts PROPERTIES TIMEOUT 30)
     set_tests_properties(infantry_deployment_contracts PROPERTIES TIMEOUT 30)
     add_executable(ec_capture_tests tests/capture_tests.cpp)
     target_link_libraries(ec_capture_tests PRIVATE ec_infantry_capture)
@@ -258,6 +263,10 @@ if(EC_BUILD_TESTS)
         add_test(NAME infantry_capture_client_contracts COMMAND "${Python3_EXECUTABLE}"
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/capture_client_tests.py" "$<TARGET_FILE:ec_capture_tests>")
         set_tests_properties(infantry_capture_client_contracts PROPERTIES TIMEOUT 30)
+        add_test(NAME infantry_sweep_capture_client_contracts COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_infantry_sweep_capture.py"
+            --native-golden "$<TARGET_FILE:ec_infantry_sweep_capture_tests>")
+        set_tests_properties(infantry_sweep_capture_client_contracts PROPERTIES TIMEOUT 30)
         add_test(NAME yaw_gear_fit_contracts COMMAND "${Python3_EXECUTABLE}"
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/yaw_gear_fit_tests.py")
         set_tests_properties(yaw_gear_fit_contracts PROPERTIES TIMEOUT 30)

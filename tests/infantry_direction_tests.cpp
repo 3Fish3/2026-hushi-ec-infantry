@@ -382,6 +382,9 @@ void world_heading_closed_loop() {
                     CHECK(std::fabs(command->torque_nm) <= 4.01f);
                     const auto& telemetry = rig.executor.main_yaw_stats();
                     CHECK(telemetry.torque_submitted);
+                    CHECK(telemetry.pid_trace_valid);
+                    CHECK(std::isfinite(telemetry.speed_target_rad_s));
+                    CHECK(std::isfinite(telemetry.speed_pid_p_nm) && std::isfinite(telemetry.speed_pid_i_nm));
                     CHECK(std::fabs(telemetry.torque_command_nm - command->torque_nm) < 0.006f);
                     torque = command->torque_nm;
                 }
@@ -405,6 +408,10 @@ void world_heading_closed_loop() {
     CHECK(rig.executor.stats().dm_disable_sent > 0);
     CHECK(!rig.executor.main_yaw_stats().torque_submitted);
     CHECK(rig.executor.main_yaw_stats().torque_command_nm == 0.0f);
+    CHECK(!rig.executor.main_yaw_stats().pid_trace_valid);
+    CHECK(rig.executor.main_yaw_stats().speed_target_rad_s == 0.0f);
+    CHECK(rig.executor.main_yaw_stats().speed_pid_p_nm == 0.0f);
+    CHECK(rig.executor.main_yaw_stats().speed_pid_i_nm == 0.0f);
     rig.imu_enabled = true;
     rig.world_gyro_z = 0.0f;
     for (int i = 0; i < 5; ++i) {

@@ -23,6 +23,7 @@
 #include "infantry_protocol.hpp"
 #include "infantry_telemetry.hpp"
 #include "infantry_link.hpp"
+#include "infantry_sweep_capture.hpp"
 #include "can.h"
 #include <array>
 #include <optional>
@@ -52,6 +53,11 @@ EcAppObservation observation{};
 transport::UartFrameDecoder decoder{};
 std::array<std::uint8_t, protocol_payload_max> response_payload{};
 ReplyMux replies{};
+// 与业务应答共用 USART1 队列, 独立分页出口不限 50 ms, 不新增 UART/DMA.
+app::sweep::ReplyQueue sweep_replies{};
+app::sweep::Recorder sweep_capture{};
+std::uint32_t sweep_last_read_ms{};
+bool sweep_reader_seen{};
 std::uint32_t handled_this_cycle{};
 // 上一次控制提交的 MCU 时刻与超期次数: 真实 dt 与超期统计互相不能替代.
 std::uint32_t last_control_us{};
@@ -79,6 +85,15 @@ void handle_request(const transport::UartFrame& frame) noexcept {
         Tick{current_cycle_ms}, response_payload);
     if (size == 0) { return; }
     if (!replies.enqueue(frame, {response_payload.data(), size})) { ++link_dropped; }
+}
+
+void handle_sweep_request(const transport::UartFrame& frame) noexcept {
+    const auto size = sweep_capture.reply(
+        {frame.payload.data(), frame.size}, response_payload);
+    if (!size || !sweep_replies.enqueue(frame.sequence, {response_payload.data(), size})) {
+        ++link_dropped;
+    }
+    if (size) { sweep_reader_seen = true; sweep_last_read_ms = current_cycle_ms; }
 }
 
 void publish_observation(Tick now) noexcept {
@@ -150,7 +165,9 @@ void publish_observation(Tick now) noexcept {
         // USART1 与业务协议共用, 发送走既有有界队列, 满时丢弃并计入 tx_dropped,
         // 不会阻塞控制任务.
         static std::uint32_t last_uart_ms{};
-        if (cycle->telemetry_enabled() && (std::uint32_t)(now.ms - last_uart_ms) >= 100u) {
+        const bool binary_reader_active = sweep_reader_seen && (now.ms - sweep_last_read_ms) < 250u;
+        // 高频二进制读取期间让出 UART 带宽; PC 停止请求后自动恢复原观测, 不改控制参数.
+        if (cycle->telemetry_enabled() && !binary_reader_active && (std::uint32_t)(now.ms - last_uart_ms) >= 100u) {
             last_uart_ms = now.ms;
             if (size > 0) {
                 (void)ec_board_uart1_try_send(reinterpret_cast<const std::uint8_t*>(line), size);
@@ -158,7 +175,7 @@ void publish_observation(Tick now) noexcept {
         }
         // 诊断行按 1 Hz 发一次, 避免与 100 Hz 的 CAL 行争用同一个环形缓冲区.
         static std::uint32_t last_gap_ms{};
-        if (cycle->telemetry_enabled() && (std::uint32_t)(now.ms - last_gap_ms) >= 1000u) {
+        if (cycle->telemetry_enabled() && !binary_reader_active && (std::uint32_t)(now.ms - last_gap_ms) >= 1000u) {
             last_gap_ms = now.ms;
             char gap_line[96];
             const auto& imu_stats = perception->stats();
@@ -307,6 +324,10 @@ void ec_app_control_tick() noexcept {
     static_cast<void>(replies.service(now, [](std::span<const std::uint8_t> wire) {
         return ec_board_uart1_try_send(wire.data(), wire.size()) != 0;
     }));
+    // 优先提交业务应答, 采集每周期至多提交一页; 已入 DMA 的字节不可抢占.
+    static_cast<void>(sweep_replies.service([](std::span<const std::uint8_t> wire) {
+        return ec_board_uart1_try_send(wire.data(), wire.size()) != 0;
+    }));
     // 5. 100 Hz 发布监控注册表与应用观测, 不在每个 1 ms 周期复制整表.
     if (++publish_counter % app_publish_period_cycles == 0) {
         publish_observation(now);
@@ -339,6 +360,9 @@ void ec_app_link_bytes(std::span<const std::uint8_t> bytes) noexcept {
         if (frame->type >= static_cast<std::uint8_t>(MessageType::hello) &&
             frame->type <= static_cast<std::uint8_t>(MessageType::permit)) {
             handle_request(*frame);
+        } else if (frame->type == app::sweep::request_type) {
+            // 只读分页, 不更新会话持权或电机命令.
+            handle_sweep_request(*frame);
         } else {
             ec_monitor_request(*frame);
         }
@@ -416,6 +440,50 @@ extern "C" void ec_board_app_commit(std::uint32_t now_ms) {
     if (domain >= 0) {
         if (const auto record = executor->trace(static_cast<Domain>(domain), {now_ms}, *application)) { ec_raw_push(*record); }
     }
+    // 当次控制/CAN 提交后记录, 不重算 PID 或伪造反馈.
+    // 只由 1 kHz 控制任务访问记录器, 不在 ISR 采样.
+    const auto& snap = application->snapshot();
+    const auto& e = snap.executions[domain_index(Domain::main_yaw)];
+    const auto& platform = snap.main_yaw;
+    const auto& control = executor->main_yaw_stats();
+    app::sweep::Sample s{};
+    s.timestamp_us = ec_board_micros();
+    s.reference_epoch = application->domain_reference_epoch(Domain::main_yaw);
+    s.reason = static_cast<std::uint8_t>(e.reason);
+    s.feedback_age_ms = 255;
+    if (e.adopted_target && e.frame == YawFrame::local_inertial) {
+        s.flags |= app::sweep::target_valid;
+        s.target_heading_rad = *e.adopted_target;
+    }
+    if (platform.validity == DomainValidity::valid) {
+        s.flags |= app::sweep::heading_valid;
+        s.heading_rad = platform.continuous_heading;
+        s.heading_rate_rad_s = platform.value.heading_rate;
+    }
+    if (e.execute) { s.flags |= app::sweep::executing; }
+    if (control.pid_trace_valid) {
+        s.flags |= app::sweep::pid_trace_valid;
+        s.speed_target_rad_s = control.speed_target_rad_s;
+        s.speed_p_nm = control.speed_pid_p_nm;
+        s.speed_i_nm = control.speed_pid_i_nm;
+    }
+    if (control.torque_submitted) {
+        s.flags |= app::sweep::torque_submitted;
+        s.torque_command_nm = control.torque_command_nm;
+    }
+    if (auto* dm = executor->dm_device()) {
+        const auto fb = dm->state().feedback;
+        if (fb.fresh_at(Tick{now_ms}, application->config().dm[0].feedback_ttl)) {
+            s.flags |= app::sweep::dm_feedback_fresh;
+            s.dm_position_rad = fb.value.position_rad;
+            s.dm_velocity_rad_s = fb.value.velocity_rad_s;
+            s.torque_feedback_nm = fb.value.torque_nm;
+            const auto age = static_cast<std::uint32_t>(now_ms - fb.sampled_at.ms);
+            s.feedback_age_ms = static_cast<std::uint8_t>(age < 255u ? age : 255u);
+        }
+        if (dm->enabled(Tick{now_ms})) { s.flags |= app::sweep::dm_enabled; }
+    }
+    sweep_capture.push(s);
 }
 
 } // 命名空间 ec::infantry

@@ -56,6 +56,9 @@ struct MainYawControlStats {
     bool mechanical_limit{};
     float torque_command_nm{}; // 有符号电机侧命令, 非实测力矩
     bool torque_submitted{};   // 本周期被 CAN 发送接口接收, 不代表电调执行
+    // 仅 Sweep 只读诊断: 本周期真实速度内环计算分项, 不是再次计算的模拟值.
+    float speed_target_rad_s{}, speed_pid_p_nm{}, speed_pid_i_nm{};
+    bool pid_trace_valid{};
 };
 
 struct ExecutorGroupStats {

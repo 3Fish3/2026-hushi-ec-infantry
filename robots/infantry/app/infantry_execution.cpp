@@ -724,6 +724,15 @@ void InfantryExecutor::step_pitch(Tick now, const InfantryApp& app, float dt_s, 
             pitch_enable_confirmed_ = false;
             return;
         }
+        // 仅提取刚刚被两个真实 PID.step 更新过的诊断, 不更改任一控制指令.
+        const auto& angle_diag = dm_yaw_angle_pid_->diagnostics();
+        const auto& speed_diag = dm_yaw_speed_pid_->diagnostics();
+        if (angle_diag.valid && speed_diag.valid) {
+            main_yaw_stats_.speed_target_rad_s = angle_diag.output;
+            main_yaw_stats_.speed_pid_p_nm = speed_diag.p;
+            main_yaw_stats_.speed_pid_i_nm = speed_diag.i;
+            main_yaw_stats_.pid_trace_valid = true;
+        }
         const auto& gimbal = *config_.single_gimbal_imu;
         // 沿 PID 力矩方向提供启动助力; 过零时连续归零, 不用 sign(速度) 硬切换.
         // 这不是已辨识的摩擦模型; 世界速度为零也不代表电机相对底盘静止.
@@ -764,6 +773,10 @@ void InfantryExecutor::step(Tick now, float dt_s, const InfantryApp& app,
     ++stats_.cycles;
     main_yaw_stats_.torque_submitted = false;
     main_yaw_stats_.torque_command_nm = 0.0f;
+    main_yaw_stats_.speed_target_rad_s = 0.0f;
+    main_yaw_stats_.speed_pid_p_nm = 0.0f;
+    main_yaw_stats_.speed_pid_i_nm = 0.0f;
+    main_yaw_stats_.pid_trace_valid = false;
     unreachable_.fill(false);
     rejected_.fill(false);
     outputs_.fill(std::nullopt);
