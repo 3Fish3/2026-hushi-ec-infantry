@@ -52,11 +52,16 @@ void Recorder::can(std::uint8_t bus, const transport::CanFrame& frame, MicroTick
     for (std::size_t i = 0; i < ids.size(); ++i) {
         const auto expected_bus = i <= 4 ? 1 : 2;
         if (bus != expected_bus || frame.id != ids[i]) { continue; }
-        Record r{Kind::can, static_cast<std::uint8_t>(i), 4, 0, ++can_sequences_[i], at.us, at.us, lost, 0xffffffffu, 0};
-        r.data[0] = bus | (static_cast<std::uint32_t>(frame.size) << 8) | (static_cast<std::uint32_t>(frame.id) << 16);
-        for (std::size_t n = 0; n < 8; ++n) { r.data[1 + n / 4] |= static_cast<std::uint32_t>(frame.data[n]) << ((n % 4) * 8); }
-        push(r, now); return;
+        can_stream(static_cast<std::uint8_t>(i), bus, frame, at, now, lost); return;
     }
+}
+void Recorder::can_stream(std::uint8_t stream, std::uint8_t bus, const transport::CanFrame& frame,
+    MicroTick at, MicroTick now, std::uint32_t lost) noexcept {
+    if (stream >= can_sequences_.size()) { return; }
+    Record r{Kind::can, stream, 4, 0, ++can_sequences_[stream], at.us, at.us, lost, 0xffffffffu, 0};
+    r.data[0] = bus | (static_cast<std::uint32_t>(frame.size) << 8) | (static_cast<std::uint32_t>(frame.id) << 16);
+    for (std::size_t n = 0; n < 8; ++n) { r.data[1 + n / 4] |= static_cast<std::uint32_t>(frame.data[n]) << ((n % 4) * 8); }
+    push(r, now);
 }
 std::size_t Recorder::request(std::span<const std::uint8_t> in, std::span<std::uint8_t> out, MicroTick now) noexcept {
     if (in.size() != 12 || out.size() < reply_header || in[0] != version || in[1] > 3) { return 0; }

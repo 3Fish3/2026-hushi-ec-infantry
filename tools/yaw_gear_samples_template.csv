@@ -1,0 +1,11 @@
+approach,turret_deg,motor_rad,source,sampled_ms,age_ms,valid,mark,note,data_kind
+forward,-10,,,,,,,
+forward,-5,,,,,,,
+forward,0,,,,,,,
+forward,5,,,,,,,
+forward,10,,,,,,,
+reverse,10,,,,,,,
+reverse,5,,,,,,,
+reverse,0,,,,,,,
+reverse,-5,,,,,,,
+reverse,-10,,,,,,,

@@ -57,6 +57,9 @@ public:
     void imu(const drivers::Bmi088Reading& sample, MicroTick now) noexcept;
     void can(std::uint8_t bus, const transport::CanFrame& frame, MicroTick at, MicroTick now,
         std::uint32_t lost) noexcept;
+    // 采集角色已按只读装配表匹配槽位后记录, 不套用历史 CAN 地址, 不产生发送动作.
+    void can_stream(std::uint8_t stream, std::uint8_t bus, const transport::CanFrame& frame,
+        MicroTick at, MicroTick now, std::uint32_t lost) noexcept;
     // 一个有界请求 -> 一个有界响应; 调用方负责与写任务的短临界区互斥.
     [[nodiscard]] std::size_t request(std::span<const std::uint8_t> in,
         std::span<std::uint8_t> out, MicroTick now) noexcept;

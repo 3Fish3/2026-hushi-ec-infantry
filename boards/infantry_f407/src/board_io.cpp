@@ -8,6 +8,7 @@
 #include "board_inputs.hpp"
 #include "board_can_queue.hpp"
 #include "board_spi_transfer.hpp"
+#include <algorithm>
 #include <limits>
 #include "board_observation.hpp"
 #include "board_registry.h"
@@ -57,16 +58,18 @@ ec::drivers::DeviceWatch<ec::infantry::can_watch_capacity> devices{};
 #endif
 bool tx_busy{false};
 std::size_t tx_inflight{0};
+std::uint32_t uart1_generation{}, uart1_restarts{}, uart1_tx_errors{}, uart1_busy_rejects{}, uart1_last_error{};
 bool imu_ready{false};
 void bump(volatile std::uint32_t& value) noexcept { value = value + 1; }
 std::optional<ec::drivers::Bmi088Device> imu{};
 
 void publish_uart(UART_HandleTypeDef* huart, bool idle = false) {
     if (huart->hdmarx == nullptr) { return; }
-    if (huart->Instance == USART6) { ec_monitor_rx_event(); return; }
     const auto ndtr = __HAL_DMA_GET_COUNTER(huart->hdmarx);
     if (huart->Instance == USART1) {
+        const auto before = usart1_rx.overflows();
         usart1_rx.on_dma_write((Pipe1::capacity() - ndtr) % Pipe1::capacity());
+        if (usart1_rx.overflows() != before) { ++uart1_generation; }
         if (idle) { bump(g_ec_io.usart1.idle); }
     } else if (huart->Instance == USART3) {
         // USART3 与其 DMA IRQ 同优先级, 共同独占分帧器, 不会互相抢占.
@@ -133,7 +136,7 @@ void note_uart_error(UART_HandleTypeDef* huart, std::uint32_t code) {
 
 void start_rx(UART_HandleTypeDef* huart, std::uint8_t* buf, std::uint16_t n) {
     // 启动前或 HAL 完成 RX 中止后, 硬件/软件游标必须一起回到零.
-    if (huart->Instance == USART1) { usart1_rx.reset(); }
+    if (huart->Instance == USART1) { usart1_rx.reset(); ++uart1_generation; }
     else {
         usart3_rx.reset();
         dr16.reset();
@@ -156,6 +159,7 @@ void kick_tx() {
         tx_busy = false;
         tx_inflight = 0;
         bump(g_ec_io.usart1.tx_dropped);
+        ++uart1_tx_errors;
     }
 }
 
@@ -276,32 +280,16 @@ void init_imu() {
 }
 
 void poll_uart1() {
+#if EC_INFANTRY_APP
     std::uint8_t tmp[ec::infantry::uart1_copy_chunk]{};
     for (std::size_t remaining = ec::infantry::uart1_poll_budget; remaining != 0;) {
-        std::size_t n{};
-#if EC_INFANTRY_APP
-        // 正式 APP: 只搬运字节, 分帧/会话/应答在 APP 侧 (本层不解析业务载荷).
-        {
-            ec::ScopedCritical guard(uart_lock);
-            n = usart1_rx.read({tmp, remaining < sizeof(tmp) ? remaining : sizeof(tmp)});
-        }
-        if (n != 0) { ec::infantry::ec_app_link_bytes({tmp, n}); }
-#else
-        {
-            ec::ScopedCritical guard(uart_lock);
-            // TX 未释放时保留 RX 数据, 不把短时背压误计成发送丢弃.
-            const auto room = usart1_tx.free();
-            const auto limit = room < sizeof(tmp) ? room : sizeof(tmp);
-            n = usart1_rx.read({tmp, limit < remaining ? limit : remaining});
-            if (n != 0 && !usart1_tx.try_push({tmp, n})) {
-                g_ec_io.usart1.tx_dropped = g_ec_io.usart1.tx_dropped + n;
-            }
-            kick_tx();
-        }
-#endif
+        const auto n = ec_board_uart1_read(tmp, remaining < sizeof(tmp) ? remaining : sizeof(tmp));
         if (n == 0) { break; }
+        ec::infantry::ec_app_link_bytes({tmp, n});
         remaining -= n;
     }
+#endif
+    // 非 APP 由监控协议解帧; 不再原样回显, 不与另一条 DMA/协议管线争抢字节.
 }
 
 void poll_uart3() {
@@ -410,6 +398,7 @@ extern "C" void ec_board_io_init(void) {
 #endif
     ec::infantry::input_reset();
     ec_registry_init();
+    // USART1 是全部通信业务的唯一物理入口, 只启动这一条接收 DMA.
     start_rx(&huart1, usart1_rx.dma_buffer(), static_cast<std::uint16_t>(Pipe1::capacity()));
     start_rx(&huart3, usart3_rx.dma_buffer(), static_cast<std::uint16_t>(Pipe3::capacity()));
     // 所有角色都在 CAN 接收启用前完成传感器阻塞初始化.
@@ -453,7 +442,9 @@ extern "C" void ec_board_io_poll(uint32_t now_ms) {
     ec::infantry::assembly_step(now_ms);
 #endif
 #endif
+#if !EC_INFANTRY_APP
     ec_monitor_poll();
+#endif
     ec_bench_tick();
     // 监控注册表只做固定字段更新; 串口/SWD 的编码只在被请求时发生.
     // 正式 APP 由 1 kHz 控制任务每 10 个周期发布一次 (同一任务写, 不需要额外同步).
@@ -471,7 +462,21 @@ extern "C" void ec_board_drain_can(uint32_t now_ms, size_t budget) {
 #endif
 }
 
-extern "C" void ec_board_poll_uart1(void) { poll_uart1(); }
+extern "C" void ec_board_poll_uart1(void) { poll_uart1(); ec_monitor_poll(); }
+
+extern "C" size_t ec_board_uart1_read(uint8_t* data, size_t capacity) {
+    ec::ScopedCritical guard(uart_lock);
+    return usart1_rx.read({data, capacity});
+}
+extern "C" uint32_t ec_board_uart1_generation(void) { return uart1_generation; }
+extern "C" void ec_board_uart1_link_stats(uint32_t* out) {
+    ec::ScopedCritical guard(uart_lock);
+    const std::array<std::uint32_t, 11> values{usart1_rx.received(), g_ec_io.usart1.tx_bytes,
+        usart1_rx.overflows(), usart1_rx.discarded(), g_ec_io.usart1.framing,
+        g_ec_io.usart1.noise, g_ec_io.usart1.overrun, uart1_restarts, uart1_tx_errors,
+        uart1_busy_rejects, uart1_last_error};
+    std::copy(values.begin(), values.end(), out);
+}
 
 extern "C" void ec_board_poll_imu(uint32_t now_ms) { poll_imu(now_ms); }
 
@@ -480,6 +485,7 @@ extern "C" int ec_board_uart1_try_send(const uint8_t* data, size_t size) {
     ec::ScopedCritical guard(uart_lock);
     if (!usart1_tx.try_push({data, size})) {
         g_ec_io.usart1.tx_dropped = g_ec_io.usart1.tx_dropped + size;
+        ++uart1_busy_rejects;
         return 0;
     }
     kick_tx();
@@ -503,7 +509,6 @@ extern "C" void HAL_UART_RxCpltCallback(UART_HandleTypeDef* huart) { publish_uar
 extern "C" void HAL_UART_RxHalfCpltCallback(UART_HandleTypeDef* huart) { publish_uart(huart); }
 
 extern "C" void HAL_UART_TxCpltCallback(UART_HandleTypeDef* huart) {
-    if (huart->Instance == USART6) { ec_monitor_tx_complete(); return; }
     if (huart->Instance != USART1) { return; }
     usart1_tx.pop(tx_inflight);
     g_ec_io.usart1.tx_bytes += tx_inflight;
@@ -513,7 +518,12 @@ extern "C" void HAL_UART_TxCpltCallback(UART_HandleTypeDef* huart) {
 }
 
 extern "C" void HAL_UART_ErrorCallback(UART_HandleTypeDef* huart) {
-    if (huart->Instance == USART6) { ec_monitor_uart_error(huart->ErrorCode); return; }
+    if (huart->Instance != USART1 && huart->Instance != USART3) { return; }
+    if (huart->Instance == USART1) {
+        uart1_last_error = huart->ErrorCode;
+        ++uart1_generation;
+        ++uart1_restarts;
+    }
     note_uart_error(huart, huart->ErrorCode);
     // TX DMA 错误也会进入此回调, 不得重置仍在运行的 RX 管线.
     if (huart->RxState != HAL_UART_STATE_READY) { return; }

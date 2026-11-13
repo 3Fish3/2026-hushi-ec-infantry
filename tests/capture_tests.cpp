@@ -19,6 +19,19 @@ struct Tx final : ec::transport::CanTx {
         CHECK(cap::allowed_read(f)); frames.push_back(f); return result;
     }
 };
+// 步兵 yaw profile 下同样只允许参数/状态读, 任何控制帧在测试发送口直接失败.
+struct YawTx final : ec::transport::CanTx {
+    const cap::CaptureConfig* config{};
+    std::vector<ec::transport::CanFrame> frames;
+    ec::transport::SendResult result{ec::transport::SendResult::accepted};
+    ec::transport::SendResult try_send(const ec::transport::CanFrame& f) noexcept override {
+        CHECK(cap::allowed_read(*config, f)); frames.push_back(f); return result;
+    }
+};
+ec::transport::CanFrame yaw_response(std::uint16_t master_id, std::uint8_t rid, std::uint32_t bits) {
+    return {master_id, 8, {5, 0, 0x33, rid, static_cast<std::uint8_t>(bits), static_cast<std::uint8_t>(bits >> 8),
+        static_cast<std::uint8_t>(bits >> 16), static_cast<std::uint8_t>(bits >> 24)}};
+}
 ec::transport::CanFrame response(std::uint8_t rid, std::uint32_t bits) {
     return {cap::dm_master_id, 8, {1, 0, 0x33, rid, static_cast<std::uint8_t>(bits), static_cast<std::uint8_t>(bits >> 8),
         static_cast<std::uint8_t>(bits >> 16), static_cast<std::uint8_t>(bits >> 24)}};
@@ -43,6 +56,23 @@ void golden() {
 }
 void raw_contracts() {
     namespace raw = ec::infantry::recording;
+    // SYNTHETIC 步兵 CAN1/0x005 原始短窗, 只用显式装配槽位, 不套历史地址.
+    {
+        raw::Recorder yaw;
+        std::array<std::uint8_t, 12> query{1, 1, 2, 0};
+        raw::put32(query, 4, 321); raw::put32(query, 8, 200000);
+        std::array<std::uint8_t, 240> output{};
+        CHECK(yaw.request(query, output, {1000}) == 32);
+        yaw.can_stream(9, 1, {5, 8, {5, 0, 1, 0, 0, 0, 25, 26}}, {1100}, {1100}, 0);
+        yaw.can_stream(10, 1, {5, 8, {}}, {1200}, {1200}, 0);
+        CHECK(yaw.size() == 1);
+        query[1] = 2; CHECK(yaw.request(query, output, {1300}) == 32);
+        query[1] = 3; raw::put32(query, 8, 0);
+        CHECK(yaw.request(query, output, {1400}) == 96);
+        const auto saved = raw::decode(std::span<const std::uint8_t>{output}.subspan(32, 64));
+        CHECK(saved && saved->stream == 9 && saved->data[0] == (1u | (8u << 8) | (5u << 16)));
+        CHECK(saved->data[1] == 0x00010005u);
+    }
     raw::Recorder recorder;
     std::array<std::uint8_t, 12> request{1, 1, 2, 0};
     raw::put32(request, 4, 123); raw::put32(request, 8, 200000);
@@ -97,6 +127,129 @@ void raw_contracts() {
     CHECK(tx.frames.size() == 50);
     for (const auto& frame : tx.frames) { CHECK(cap::allowed_read(frame) && frame.data[2] == 0xcc); }
 }
+// 步兵 yaw profile: CAN1 达妙 yaw (命令/反馈 0x005, node 5), 四轮 CAN1 0x201..0x204, pitch CAN2 0x205.
+void yaw_profile() {
+    const auto& cfg = cap::infantry_yaw;
+    CHECK(cfg.dm_bus == 1 && cfg.dm_can_id == 0x005 && cfg.dm_master_id == 0x005);
+    CHECK(cfg.installs[0].kind == cap::Kind::c620 && cfg.installs[0].bus == 1 && cfg.installs[0].rx_id == 0x201);
+    CHECK(cfg.installs[3].bus == 1 && cfg.installs[3].rx_id == 0x204 && cfg.installs[3].node == 4);
+    CHECK(cfg.installs[6].kind == cap::Kind::c620 && cfg.installs[6].bus == 2 &&
+        cfg.installs[6].rx_id == 0x205 && cfg.installs[6].node == 5);
+    CHECK(cfg.installs[9].kind == cap::Kind::dm && cfg.installs[9].bus == 1 &&
+        cfg.installs[9].rx_id == 0x005 && cfg.installs[9].node == 5);
+    // 历史槽 (0x208/0x20a/0x206/0x207) 不再作为本车已装设备.
+    for (std::size_t i : {4u, 5u, 7u, 8u}) {
+        CHECK(cfg.installs[i].kind == cap::Kind::absent && cfg.installs[i].bus == 0);
+    }
+    // 读请求与状态请求使用 profile 的命令 ID, 且都只落在 0x7FF 读白名单.
+    const auto request = cap::read_request(cfg, 0x50);
+    CHECK(request && request->id == 0x7ff && request->size == 4);
+    CHECK(request->data[0] == 0x05 && request->data[1] == 0x00 && request->data[2] == 0x33 && request->data[3] == 0x50);
+    const auto status = cap::status_request(cfg);
+    CHECK(status.id == 0x7ff && status.size == 4);
+    CHECK(status.data[0] == 0x05 && status.data[1] == 0x00 && status.data[2] == 0xcc && status.data[3] == 0);
+    CHECK(cap::allowed_read(cfg, *request) && cap::allowed_read(cfg, status));
+    auto not_read = *request; not_read.data[3] = 0xff; CHECK(!cap::allowed_read(cfg, not_read));
+    auto write = *request; write.data[2] = 0x34; CHECK(!cap::allowed_read(cfg, write)); // 写寄存器不是读白名单
+    // 使能/失能/清错/置零/保存/任意 MIT 命令帧即使使用本 profile 的 ID 也不在白名单.
+    ec::transport::CanFrame action{0x005, 8, {}};
+    action.data.fill(0xff); action.data[7] = 0xfc; CHECK(!cap::allowed_read(cfg, action)); // 使能
+    action.data[7] = 0xfd; CHECK(!cap::allowed_read(cfg, action)); // 失能
+    action.data[7] = 0xfb; CHECK(!cap::allowed_read(cfg, action)); // 清错
+    action.data[7] = 0xfe; CHECK(!cap::allowed_read(cfg, action)); // 置零
+    action.data[7] = 0xff; CHECK(!cap::allowed_read(cfg, action)); // 保存设置
+    ec::transport::CanFrame mit{0x005, 8, {0x10, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70, 0x80}};
+    CHECK(!cap::allowed_read(cfg, mit));
+    auto saved = status; saved.data[3] = 1; CHECK(!cap::allowed_read(cfg, saved));
+    // 两 profile 的读白名单互不通用, 不因沿用同一 0x7FF 就放行另一套命令 ID.
+    CHECK(!cap::allowed_read(cfg, cap::status_request()));
+    CHECK(!cap::allowed_read(cap::legacy_config, status));
+    // legacy 候选表不能被这个 profile 顶替, 两套配置各自独立.
+    CHECK(cap::status_request().data[0] == 1 && cap::status_request().data[1] == 0);
+    CHECK(cap::legacy_config.installs[9].rx_id == 0x011 && cap::legacy_config.dm_bus == 2);
+    cap::Collector c{cfg};
+    CHECK(c.config().dm_master_id == 0x005);
+    YawTx tx; tx.config = &cfg;
+    // 四轮与 pitch 在各自总线、ID、node 上有效; 错误总线或 node 不计入有效.
+    for (std::size_t i = 0; i < 7; ++i) {
+        if (cfg.installs[i].kind == cap::Kind::absent) { continue; }
+        const auto& entry = cfg.installs[i];
+        ec::transport::CanFrame f{entry.rx_id, 8, {0, 0, 0, 1, 0, 0, 25, 0}};
+        c.receive(entry.bus, f, 10, 0);
+        CHECK(c.motors()[i].valid && c.motors()[i].received == 1);
+    }
+    c.receive(2, {0x201, 8, {0, 0, 0, 1, 0, 0, 25, 0}}, 11, 0); // 四轮只在 CAN1
+    CHECK(c.diagnostics().unknown == 1 && c.motors()[0].received == 1);
+    // 达妙反馈: CAN1 Master 0x005, 低 4 位 node=5, 有效状态半字节.
+    c.receive(1, {0x005, 8, {0x15, 0, 0, 0, 0, 0, 25, 26}}, 20, 0);
+    CHECK(c.motors()[9].valid && c.motors()[9].received == 1);
+    auto wrong_node = ec::transport::CanFrame{0x005, 8, {0x16, 0, 0, 0, 0, 0, 25, 26}};
+    c.receive(1, wrong_node, 21, 0);
+    CHECK(c.motors()[9].received == 2 && !c.motors()[9].valid && c.motors()[9].invalid == 1);
+    c.receive(2, {0x005, 8, {0x1f, 0, 0, 0, 0, 0, 25, 26}}, 22, 0); // yaw 只在 CAN1
+    CHECK(c.diagnostics().unknown == 2 && c.motors()[9].received == 2);
+    // 参数响应必须匹配 profile 总线/Master ID/payload 电机 ID/RID 与在途请求.
+    c.receive(1, yaw_response(0x005, 0x50, 0), 23, 0); CHECK(c.diagnostics().unsolicited == 1);
+    c.poll(tx, 0xfffffff0u);
+    CHECK(tx.frames.size() == 1 && tx.frames.back().data[3] == 0x50);
+    CHECK(tx.frames.back().data[0] == 0x05 && tx.frames.back().data[1] == 0x00);
+    c.receive(1, yaw_response(0x004, 0x50, 0), 1, 0); CHECK(!c.values()[10].seen);
+    c.receive(2, yaw_response(0x005, 0x50, 0), 1, 0); CHECK(!c.values()[10].seen); // 错误总线
+    // 回显字节被破坏的参数帧与普通 MIT 反馈在协议上不可区分: 只要求它不写入寄存器值,
+    // 不把这种帧当作参数响应, 也不据此声称参数有效.
+    auto wrong_motor = yaw_response(0x005, 0x50, 0); wrong_motor.data[0] = 6;
+    c.receive(1, wrong_motor, 1, 0);
+    CHECK(!c.values()[10].seen && !c.motors()[9].valid);
+    auto wrong_device = yaw_response(0x005, 0x50, 0); wrong_device.data[1] = 1;
+    const auto before_wrong_device = c.motors()[9].received;
+    c.receive(1, wrong_device, 1, 0);
+    CHECK(!c.values()[10].seen && c.motors()[9].received == before_wrong_device + 1);
+    c.receive(1, yaw_response(0x005, 0x51, 0), 1, 0); CHECK(!c.values()[10].seen); // RID 必须匹配在途请求
+    // 回显命中但 RID 不在白名单的参数响应只计无效, 不能解成 MIT 位置.
+    const auto before_unknown_rid = c.motors()[9].received;
+    c.receive(1, yaw_response(0x005, 0x02, 0), 1, 0); CHECK(c.diagnostics().unsolicited == 3);
+    CHECK(c.motors()[9].received == before_unknown_rid);
+    c.receive(1, yaw_response(0x005, 0x50, std::bit_cast<std::uint32_t>(1.5f)), 1, 0);
+    CHECK(c.values()[10].seen && c.values()[10].valid && c.values()[10].received_ms == 1);
+    CHECK(c.values()[10].request_ms == 0xfffffff0u);
+    // 严格 100 ms: 边界值迟到不算有效, 并计一次超时.
+    c.poll(tx, 0x22); CHECK(tx.frames.size() == 2 && tx.frames.back().data[3] == 0x51);
+    c.receive(1, yaw_response(0x005, 0x51, 0), 0x22 + 100, 0);
+    CHECK(!c.values()[11].seen);
+    c.poll(tx, 0x22 + 100); CHECK(c.diagnostics().timeouts == 1);
+    // NaN 浮点寄存器标为已见但无效; 不伪报有效角度. 走到固定 RID 0x14 的真实请求路径.
+    cap::Collector nan{cfg}; YawTx nan_tx; nan_tx.config = &cfg;
+    unsigned nan_at{};
+    for (unsigned t = 0; t <= 4000; t += 50) {
+        nan.poll(nan_tx, t);
+        if (nan_tx.frames.back().data[3] == 0x14) { nan_at = t; break; }
+    }
+    CHECK(nan_at != 0);
+    nan.receive(1, yaw_response(0x005, 0x14,
+        std::bit_cast<std::uint32_t>(std::numeric_limits<float>::quiet_NaN())), nan_at + 1, 0);
+    CHECK(nan.values()[5].seen && !nan.values()[5].valid);
+    // 全程只发送参数/状态读; 长时间轮询也不能出现任何控制或写命令.
+    for (unsigned t = 0; t < 10000; t += 10) { c.poll(tx, t); }
+    CHECK(!tx.frames.empty());
+    for (const auto& f : tx.frames) {
+        CHECK(cap::allowed_read(cfg, f));
+        CHECK(f.id == 0x7ff && f.size == 4 && f.data[0] == 0x05 && f.data[1] == 0x00);
+        CHECK(f.data[2] == 0x33 || (f.data[2] == 0xcc && f.data[3] == 0));
+    }
+    // 未安装槽位不产生采集记录, 但页结构保持 10 槽协议.
+    CHECK(!c.motors()[4].seen && !c.motors()[5].seen && !c.motors()[7].seen && !c.motors()[8].seen);
+    std::array<std::uint8_t, 256> page{};
+    CHECK(cap::encode_page(c, 3, 0, page) > 0);
+    CHECK(page[2] == 2);
+    CHECK(cap::encode_page(c, 1, 0, page) == 112);
+    // 状态快速轮询同样只发 0xCC 状态读.
+    cap::Collector fast{cfg}; YawTx fast_tx; fast_tx.config = &cfg;
+    for (unsigned t = 0; t < 100; ++t) { fast.poll(fast_tx, t, true); }
+    CHECK(fast_tx.frames.size() == 50);
+    for (const auto& f : fast_tx.frames) {
+        CHECK(cap::allowed_read(cfg, f) && f.data[2] == 0xcc && f.data[0] == 0x05);
+    }
+}
 void raw_golden() {
     namespace raw = ec::infantry::recording;
     raw::Record record{raw::Kind::gyro, 0, 3, 0, 4, 0xfffffff0u, 20, 1, 600, 9};
@@ -132,6 +285,7 @@ int main(int argc, char** argv) {
     if (argc == 2 && std::strcmp(argv[1], "--raw-golden") == 0) { raw_golden(); return 0; }
     if (argc == 3 && std::strcmp(argv[1], "--raw-replay") == 0) { return raw_replay(argv[2]); }
     raw_contracts();
+    yaw_profile();
     if (argc == 2 && std::strcmp(argv[1], "--golden") == 0) { golden(); return 0; }
     for (unsigned rid = 0; rid < 256; ++rid) {
         const auto f = cap::read_request(static_cast<std::uint8_t>(rid));

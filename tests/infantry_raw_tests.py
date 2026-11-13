@@ -52,6 +52,24 @@ class RawTests(unittest.TestCase):
             self.assertEqual(rows[0]['gap'], 2)
             with self.assertRaises(ValueError): cal.quality(rows)
 
+    def test_can_export_keeps_bus_id_and_raw_payload(self):
+        # SYNTHETIC CAN 记录, 只回放/导出, 不打开任何设备.
+        wire = bytearray(64)
+        struct.pack_into('<4B7I', wire, 0, 1, 4, 9, 1, 0, 1, 1000, 1000, 0, 0, 7)
+        struct.pack_into('<I', wire, 32, 1 | (8 << 8) | (5 << 16))
+        wire[36:44] = bytes.fromhex('050001000000191a')
+        with tempfile.TemporaryDirectory() as directory:
+            source, destination = Path(directory)/'synthetic.sraw', Path(directory)/'raw.csv'
+            raw.save(source, dict(layout_id=raw.LAYOUT, run=7, start_us=1000,
+                                  data_kind='SYNTHETIC'), [bytes(wire)])
+            result = subprocess.run([sys.executable, str(Path(raw.__file__)), 'export', str(source),
+                                     '--output', str(destination)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            with destination.open(encoding='utf-8') as stream:
+                row = next(csv.DictReader(stream))
+            self.assertEqual((row['bus'], row['can_id'], row['dlc']), ('1', '5', '8'))
+            self.assertEqual(row['data'], '050001000000191a')
+
     def test_control_reference_tags(self):
         wire = bytearray(64)
         struct.pack_into('<4B7I', wire, 0, 1, 5, 4, 1, 0, 1, 1000, 1000, 0, 0, 1)

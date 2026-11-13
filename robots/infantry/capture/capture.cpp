@@ -15,25 +15,32 @@ std::optional<std::size_t> register_index(std::uint8_t rid) noexcept {
 } // 内部辅助
 
 std::optional<ec::transport::CanFrame> read_request(std::uint8_t rid) noexcept {
+    return read_request(legacy_config, rid);
+}
+std::optional<ec::transport::CanFrame> read_request(const CaptureConfig& config, std::uint8_t rid) noexcept {
     if (!register_index(rid)) { return std::nullopt; }
     return ec::transport::CanFrame{0x7ff, 4,
-        {static_cast<std::uint8_t>(dm_can_id), static_cast<std::uint8_t>(dm_can_id >> 8), 0x33, rid}};
+        {static_cast<std::uint8_t>(config.dm_can_id), static_cast<std::uint8_t>(config.dm_can_id >> 8), 0x33, rid}};
 }
-ec::transport::CanFrame status_request() noexcept {
-    return {0x7ff, 4, {static_cast<std::uint8_t>(dm_can_id), static_cast<std::uint8_t>(dm_can_id >> 8), 0xcc, 0}};
+ec::transport::CanFrame status_request() noexcept { return status_request(legacy_config); }
+ec::transport::CanFrame status_request(const CaptureConfig& config) noexcept {
+    return {0x7ff, 4,
+        {static_cast<std::uint8_t>(config.dm_can_id), static_cast<std::uint8_t>(config.dm_can_id >> 8), 0xcc, 0}};
 }
-bool allowed_read(const ec::transport::CanFrame& f) noexcept {
-    const auto status = status_request();
+bool allowed_read(const ec::transport::CanFrame& f) noexcept { return allowed_read(legacy_config, f); }
+bool allowed_read(const CaptureConfig& config, const ec::transport::CanFrame& f) noexcept {
+    const auto status = status_request(config);
     if (f.id == status.id && f.size == status.size && f.data == status.data) { return true; }
-    const auto expected = read_request(f.data[3]);
+    const auto expected = read_request(config, f.data[3]);
     return expected && f.id == expected->id && f.size == expected->size && f.data == expected->data;
 }
 void Collector::receive(std::uint8_t bus, const ec::transport::CanFrame& f,
     std::uint32_t ms, std::uint32_t cycles) noexcept {
     if (!f.valid()) { ++diagnostics_.malformed; return; }
-    // 参数响应与普通 MIT 状态共用 Master ID. 优先识别参数响应, 不把它解成角度/温度.
-    if (bus == dm_bus && f.id == dm_master_id && f.size == 8 &&
-        f.data[0] == (dm_can_id & 0xff) && f.data[1] == (dm_can_id >> 8) && f.data[2] == 0x33) {
+    // 参数响应与普通 MIT 状态共用 Master ID; 应答字节 0..1 回显命令 ID, 只有回显命中才按参数语义.
+    // 回显命中却未严格匹配在途请求/白名单 RID/100 ms 时限时只计无效, 绝不渗入 MIT 槽.
+    if (bus == config_.dm_bus && f.id == config_.dm_master_id && f.size == 8 && f.data[2] == 0x33 &&
+        f.data[0] == (config_.dm_can_id & 0xff) && f.data[1] == (config_.dm_can_id >> 8)) {
         const auto index = register_index(f.data[3]);
         if (!index || !pending_ || *index != pending_index_ || ms - requested_at_ >= dm_timeout_ms) {
             ++diagnostics_.unsolicited;
@@ -52,8 +59,9 @@ void Collector::receive(std::uint8_t bus, const ec::transport::CanFrame& f,
         pending_ = false;
         return;
     }
-    for (std::size_t i = 0; i < installs.size(); ++i) {
-        const auto& config = installs[i];
+    for (std::size_t i = 0; i < config_.installs.size(); ++i) {
+        const auto& config = config_.installs[i];
+        if (config.kind == Kind::absent) { continue; }
         if (config.bus != bus || config.rx_id != f.id) { continue; }
         auto& m = motors_[i];
         if (m.seen && ms - m.last_ms < 1000) {
@@ -91,7 +99,7 @@ void Collector::poll(ec::transport::CanTx& tx, std::uint32_t now, bool fast_stat
         // 原始旋转短窗期间只询问状态, 500 Hz; 不等待上一回复、不补发积压查询.
         if (attempted_ && now - last_attempt_ < 2) { return; }
         attempted_ = true; last_attempt_ = now;
-        switch (tx.try_send(status_request())) {
+        switch (tx.try_send(status_request(config_))) {
         case ec::transport::SendResult::accepted: ++diagnostics_.queries; break;
         case ec::transport::SendResult::busy: ++diagnostics_.tx_busy; break;
         default: ++diagnostics_.tx_error; break;
@@ -110,7 +118,8 @@ void Collector::poll(ec::transport::CanTx& tx, std::uint32_t now, bool fast_stat
     const std::uint8_t index = phase_ == 0 ? 10 : phase_ == 1 ? 11 : phase_ == 2 ? 255 : config_index_;
     if (phase_ == 3) { config_index_ = static_cast<std::uint8_t>((config_index_ + 1) % 10); }
     phase_ = static_cast<std::uint8_t>((phase_ + 1) % 4);
-    const auto request = index == 255 ? std::optional{status_request()} : read_request(registers[index].rid);
+    const auto request = index == 255 ? std::optional{status_request(config_)} :
+        read_request(config_, registers[index].rid);
     if (!request) { return; }
     switch (tx.try_send(*request)) {
     case ec::transport::SendResult::accepted:
@@ -149,7 +158,9 @@ std::size_t encode_page(const Collector& c, std::uint8_t page, std::uint32_t now
     if (page >= 1 && page <= 5) {
         w.header(page, 2, now);
         const auto start = static_cast<std::size_t>((page - 1) * 2);
-        for (std::size_t i = start; i < start + 2; ++i) { encode_motor(w, installs[i], c.motors()[i]); }
+        for (std::size_t i = start; i < start + 2; ++i) {
+            encode_motor(w, c.config().installs[i], c.motors()[i]);
+        }
     } else if (page >= 7 && page <= 9) {
         w.header(page, 4, now);
         const auto start = static_cast<std::size_t>((page - 7) * 4);

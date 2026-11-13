@@ -50,10 +50,15 @@ void ec_board_on_uart_irq(void* huart);
 //  - 正式 APP 角色由 1 kHz 控制任务调用 CAN 收帧/IMU 采样/USART1 搬运, 10 ms 任务不重复读.
 void ec_board_drain_can(uint32_t now_ms, size_t budget);
 void ec_board_poll_uart1(void);
+// USART1 唯一接收管线; 协议层有界取字节, 不能另启 DMA 或回显同一批数据.
+size_t ec_board_uart1_read(uint8_t* data, size_t capacity);
+uint32_t ec_board_uart1_generation(void);
 void ec_board_poll_imu(uint32_t now_ms);
 // USART1 有界发送 (正式 APP 的业务协议应答): 队列满时拒绝并计数, 不阻塞调用者.
 int ec_board_uart1_try_send(const uint8_t* data, size_t size);
 uint32_t ec_board_uart1_overflows(void);
+// 既有监控协议的前 11 个链路计数, 物理来源统一为 USART1; 不改变线格式.
+void ec_board_uart1_link_stats(uint32_t* out);
 
 #ifdef __cplusplus
 }

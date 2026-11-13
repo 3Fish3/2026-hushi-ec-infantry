@@ -192,7 +192,7 @@ def main():
     else:
         metadata, rows = load(args.input)
         with args.output.open('x', newline='', encoding='utf-8') as file:
-            fields = ['kind', 'stream', 't_s', 'arrival_s', 'sequence', 'source_sequence', 'lost', 'error_us', 'gap', 'data', 'values', 'requested_frame', 'adopted_frame', 'state_bits', 'send_result']
+            fields = ['kind', 'stream', 't_s', 'arrival_s', 'sequence', 'source_sequence', 'lost', 'error_us', 'gap', 'bus', 'can_id', 'dlc', 'data', 'values', 'requested_frame', 'adopted_frame', 'state_bits', 'send_result']
             writer = csv.DictWriter(file, fieldnames=fields, extrasaction='ignore')
             writer.writeheader()
             writer.writerows(rows)

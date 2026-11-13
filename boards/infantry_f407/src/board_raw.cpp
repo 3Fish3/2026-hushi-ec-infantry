@@ -3,6 +3,9 @@
 #include "ec/channel.hpp"
 #include <algorithm>
 #include "ec/platform/stm32f407.hpp"
+#if EC_INFANTRY_CAPTURE && EC_CAPTURE_INFANTRY_YAW
+#include "capture.hpp"
+#endif
 #if EC_INFANTRY_APP || EC_INFANTRY_CAPTURE
 namespace {
 ec::infantry::recording::Recorder recorder;
@@ -13,7 +16,19 @@ void ec_raw_imu(const ec::drivers::Bmi088Reading& reading) noexcept {
     recorder.imu(reading, {ec_board_micros()});
 }
 void ec_raw_can(std::uint8_t bus, const ec::transport::CanFrame& frame, ec::MicroTick at, std::uint32_t lost) noexcept {
+#if EC_INFANTRY_CAPTURE && EC_CAPTURE_INFANTRY_YAW
+    // 与采集页共用步兵装配表, 否则 CAN1/0x005 会被历史 CAN2/0x011 过滤掉.
+    const auto& installs = ec::infantry::capture::infantry_yaw.installs;
+    for (std::size_t slot = 0; slot < installs.size(); ++slot) {
+        const auto& entry = installs[slot];
+        if (entry.kind != ec::infantry::capture::Kind::absent && entry.bus == bus && entry.rx_id == frame.id) {
+            recorder.can_stream(static_cast<std::uint8_t>(slot), bus, frame, at, {ec_board_micros()}, lost);
+            break;
+        }
+    }
+#else
     recorder.can(bus, frame, at, {ec_board_micros()}, lost);
+#endif
 }
 void ec_raw_push(const ec::infantry::recording::Record& record) noexcept { recorder.push(record, {ec_board_micros()}); }
 bool ec_raw_fast_dm() noexcept {

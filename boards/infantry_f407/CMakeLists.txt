@@ -131,7 +131,8 @@ if(EC_BUILD_INFANTRY_CAPTURE)
     add_executable(infantry_capture ${_board_sources} src/board_capture.cpp src/board_raw.cpp)
     set_target_properties(infantry_capture PROPERTIES SUFFIX ".elf")
     target_compile_definitions(infantry_capture PRIVATE EC_FIRMWARE_ID="capture-${EC_FIRMWARE_ID}"
-        EC_INFANTRY_CAPTURE=1 EC_S1_UART6_MONITOR=1 EC_MONITOR_REGISTRY=0 EC_S5_GM6020_BENCH=0)
+        EC_INFANTRY_CAPTURE=1 EC_CAPTURE_INFANTRY_YAW=$<BOOL:${EC_CAPTURE_INFANTRY_YAW}>
+        EC_S1_UART6_MONITOR=1 EC_MONITOR_REGISTRY=0 EC_S5_GM6020_BENCH=0)
     target_link_libraries(infantry_capture PRIVATE ec_s1_vendor ec_infantry_capture)
     set_source_files_properties(src/board_capture.cpp PROPERTIES COMPILE_OPTIONS "-Wall;-Wextra;-Wpedantic;-Werror")
     target_link_options(infantry_capture PRIVATE "-T${_mx}/STM32F407xx_FLASH.ld"

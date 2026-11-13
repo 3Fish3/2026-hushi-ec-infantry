@@ -9,9 +9,15 @@
 #include <bit>
 
 static_assert(EC_INFANTRY_CAPTURE && !EC_S5_GM6020_BENCH);
+// 采集 profile 由编译宏显式选择: 默认保持 legacy 候选接线; 步兵 yaw 实车选 CAN1 0x005.
+#ifndef EC_CAPTURE_INFANTRY_YAW
+#define EC_CAPTURE_INFANTRY_YAW 0
+#endif
 extern "C" { extern const volatile std::uint32_t g_ec_capture_signature = 0x43415031; }
 namespace {
 namespace cap = ec::infantry::capture;
+constexpr const cap::CaptureConfig& capture_config =
+    EC_CAPTURE_INFANTRY_YAW ? cap::infantry_yaw : cap::legacy_config;
 struct Received {
     ec::transport::CanFrame frame{};
     std::uint32_t ms{}, cycles{}, us{};
@@ -19,17 +25,19 @@ struct Received {
 };
 ec::stm32f407::IrqCriticalSection lock{};
 ec::EventQueue<Received, 128, ec::stm32f407::IrqCriticalSection> queue{lock};
-cap::Collector collector{};
+cap::Collector collector{capture_config};
 std::uint32_t queued{}, high_water{}, dropped{}, overrun[2]{}, errors[2]{};
 std::uint32_t max_age{}, max_gap{}, max_cost{}, stack_words{};
 // 只提供固定参数/状态读取能力; 不借用可接任意控制帧的 HalCanTx.
-static_assert(cap::dm_bus == 1 || cap::dm_bus == 2, "DM bus must be CAN1 or CAN2");
-CAN_HandleTypeDef* dm_can_handle() noexcept { return cap::dm_bus == 1 ? &hcan1 : &hcan2; }
+static_assert(cap::legacy_config.dm_bus == 1 || cap::legacy_config.dm_bus == 2, "DM bus must be CAN1 or CAN2");
+static_assert(cap::infantry_yaw.dm_bus == 1 || cap::infantry_yaw.dm_bus == 2, "DM bus must be CAN1 or CAN2");
+static_assert(EC_CAPTURE_INFANTRY_YAW == 0 || EC_CAPTURE_INFANTRY_YAW == 1, "invalid capture profile macro");
+CAN_HandleTypeDef* dm_can_handle() noexcept { return capture_config.dm_bus == 1 ? &hcan1 : &hcan2; }
 class ReadOnlyTx final : public ec::transport::CanTx {
 public:
     ec::transport::SendResult try_send(const ec::transport::CanFrame& frame) noexcept override {
         using ec::transport::SendResult;
-        if (!cap::allowed_read(frame)) { return SendResult::invalid; }
+        if (!cap::allowed_read(capture_config, frame)) { return SendResult::invalid; }
         auto* handle = dm_can_handle();
         if (HAL_CAN_GetTxMailboxesFreeLevel(handle) == 0) { return SendResult::busy; }
         CAN_TxHeaderTypeDef header{};
@@ -119,7 +127,9 @@ std::size_t ec_capture_snapshot(std::uint8_t page, std::span<std::uint8_t> out) 
             now = uwTick;
         }
         w.header(page, 2, now);
-        for (std::size_t i = 0; i < copy.size(); ++i) { cap::encode_motor(w, cap::installs[start + i], copy[i]); }
+        for (std::size_t i = 0; i < copy.size(); ++i) {
+            cap::encode_motor(w, collector.config().installs[start + i], copy[i]);
+        }
     } else if (page >= 7) {
         const auto start = static_cast<std::size_t>((page - 7) * 4);
         std::array<cap::Register, 4> copy{};

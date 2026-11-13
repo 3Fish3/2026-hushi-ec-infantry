@@ -3,6 +3,7 @@
 // 不分配内存、不抛异常、不做无界循环.
 #include "board_app.hpp"
 #include "board_raw.hpp"
+#include "board_monitor.h"
 #include "board_rtt.hpp"
 #if EC_INFANTRY_APP
 #include "board_app_config.hpp"
@@ -335,7 +336,12 @@ void ec_app_link_bytes(std::span<const std::uint8_t> bytes) noexcept {
             continue;
         }
         ++handled_this_cycle;
-        handle_request(*frame);
+        if (frame->type >= static_cast<std::uint8_t>(MessageType::hello) &&
+            frame->type <= static_cast<std::uint8_t>(MessageType::permit)) {
+            handle_request(*frame);
+        } else {
+            ec_monitor_request(*frame);
+        }
     }
 }
 
