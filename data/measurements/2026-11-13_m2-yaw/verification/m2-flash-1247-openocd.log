@@ -1,0 +1,40 @@
+Open On-Chip Debugger 0.12.0-01004-g9ea7f3d64-dirty (2026-08-27-22:55)
+Licensed under GNU GPL v2
+For bug reports, read
+	http://openocd.org/doc/doxygen/bugs.html
+Info : auto-selecting first available session transport "swd". To override use 'transport select <transport>'.
+adapter speed: 1000 kHz
+
+Info : tcl server disabled
+Info : telnet server disabled
+Info : Using CMSIS-DAPv2 interface with VID:PID=0xfaed:0x4870, serial=332107148313
+Info : CMSIS-DAP: SWD supported
+Info : CMSIS-DAP: JTAG supported
+Info : CMSIS-DAP: Atomic commands supported
+Info : CMSIS-DAP: UART via USB COM port supported
+Info : CMSIS-DAP: FW Version = Horco v0.2
+Info : CMSIS-DAP: Interface Initialised (SWD)
+Info : SWCLK/TCK = 1 SWDIO/TMS = 1 TDI = 1 TDO = 1 nTRST = 0 nRESET = 1
+Info : CMSIS-DAP: Interface ready
+Info : clock speed 1000 kHz
+Info : SWD DPIDR 0x2ba01477
+Info : [stm32f4x.cpu] Cortex-M4 r0p1 processor detected
+Info : [stm32f4x.cpu] target has 6 breakpoints, 4 watchpoints
+Info : starting gdb server for stm32f4x.cpu on 3333
+Info : Listening on port 3333 for gdb connections
+Info : accepting 'gdb' connection on tcp/3333
+[stm32f4x.cpu] halted due to debug-request, current mode: Thread 
+xPSR: 0x61000000 pc: 0x0800a998 psp: 0x2001b9d8
+Info : device id = 0x101f6413
+Info : flash size = 1024 KiB
+Info : flash size = 512 bytes
+[stm32f4x.cpu] halted due to debug-request, current mode: Thread 
+xPSR: 0x01000000 pc: 0x08000bbc msp: 0x20020000
+[stm32f4x.cpu] halted due to debug-request, current mode: Thread 
+xPSR: 0x01000000 pc: 0x08000bbc msp: 0x20020000
+Info : Padding image section 0 at 0x08000188 with 8 bytes
+Info : Padding image section 1 at 0x0802cf0c with 4 bytes
+[stm32f4x.cpu] halted due to debug-request, current mode: Thread 
+xPSR: 0x01000000 pc: 0x08000bbc msp: 0x20020000
+Info : dropped 'gdb' connection
+shutdown command invoked

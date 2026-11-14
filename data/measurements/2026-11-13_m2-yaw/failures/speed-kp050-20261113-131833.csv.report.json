@@ -1,0 +1,18 @@
+{
+  "tool": "infantry_sweep_trial",
+  "schema": 2,
+  "complete": false,
+  "frequencies": [
+    0.5
+  ],
+  "cycles": 3,
+  "amplitude_nm": 0.01,
+  "duration_s": 6.0,
+  "target_heading_rad": -0.9237672686576843,
+  "port": "/dev/serial/by-id/usb-Horco_Horco_CMSIS-DAP_332107148384-if02",
+  "baud": 921600,
+  "elf_sha256": "1d58c8a6899c8ca500aa3754e6ef19a580a21f36e87b1514bf88c57db3389a11",
+  "identity": "infantry_app",
+  "error": "RuntimeError: sweep op 1 rejected: {'session': 10, 'sequence': 6, 'result': 10, 'result_name': 'INVALID_VALUE', 'reason': 0, 'reason_name': 'none'}",
+  "reason": "error: RuntimeError"
+}

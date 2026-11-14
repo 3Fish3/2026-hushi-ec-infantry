@@ -1,0 +1,184 @@
+{
+  "archive_date": "2026-11-13",
+  "data_kind": "REAL",
+  "source_commit_at_archive": "b463de16d1c6ef8f672ac4a8432a3d60bed3edd2",
+  "measured_firmware_elf_sha256": "1d58c8a6899c8ca500aa3754e6ef19a580a21f36e87b1514bf88c57db3389a11",
+  "rc_return_new_build_elf_sha256": "5192bc79fb4ce49370c922d183c63a20c051c62ae10b2becaa72709f00cae588",
+  "rc_return_new_build_flashed": false,
+  "files": [
+    {
+      "path": "runs/first-20261113-130744.csv",
+      "bytes": 410715,
+      "sha256": "cf272463e5144cbdcd2bc58f561cc3026cb4ef708ac4ba8ce3dd06cfb1c851e9",
+      "original_location": ".tmp/m2-trial/first-20261113-130744.csv"
+    },
+    {
+      "path": "runs/first-20261113-130744.csv.report.json",
+      "bytes": 1103,
+      "sha256": "e04efb0d99e7d2c7d68c7fe56334195909ec4d4461e9bdfc2b548453d31c6e4c",
+      "original_location": ".tmp/m2-trial/first-20261113-130744.csv.report.json"
+    },
+    {
+      "path": "runs/first-20261113-130744-preflight.json",
+      "bytes": 6968,
+      "sha256": "94241390ca3b4a334b93a3c4c898ae0b5bc6b2ca7244913c3224af9ce8b02aaa",
+      "original_location": ".tmp/m2-trial/first-20261113-130744-preflight.json"
+    },
+    {
+      "path": "runs/first-20261113-130744-quality.json",
+      "bytes": 504,
+      "sha256": "5fbd9dff262cd7e99c5a78d3244314f8b34e5d168de0aaea0c68c2ed0a35f02b",
+      "original_location": ".tmp/m2-trial/first-20261113-130744-quality.json"
+    },
+    {
+      "path": "runs/speed-kp050-fixed-20261113-133742.csv",
+      "bytes": 410656,
+      "sha256": "513caee86dc2ff9003863fee1c932a9a9f127ef37f2100d3b2b36a4d7c4518d5",
+      "original_location": ".tmp/m2-pid-tuning/speed-kp050-fixed-20261113-133742.csv"
+    },
+    {
+      "path": "runs/speed-kp050-fixed-20261113-133742.csv.report.json",
+      "bytes": 1103,
+      "sha256": "3fc3dd91e9fb193b1d8f9ddaa8299b6c396121387166c13b80c6b05f5f60d5b4",
+      "original_location": ".tmp/m2-pid-tuning/speed-kp050-fixed-20261113-133742.csv.report.json"
+    },
+    {
+      "path": "runs/speed-kp050-fixed-20261113-133742-gains.json",
+      "bytes": 156,
+      "sha256": "d1173e708679d3a02874eb34652f193be61da09e021e86131d6fdc604ee696b3",
+      "original_location": ".tmp/m2-pid-tuning/speed-kp050-fixed-20261113-133742-gains.json"
+    },
+    {
+      "path": "runs/speed-kp050-fixed-20261113-134307.csv",
+      "bytes": 414280,
+      "sha256": "359b9dfbb6a4462373e056433848d0cdbc45a3d25832e6c895aaffeaaad7a9c1",
+      "original_location": ".tmp/m2-pid-tuning/speed-kp050-fixed-20261113-134307.csv"
+    },
+    {
+      "path": "runs/speed-kp050-fixed-20261113-134307.csv.report.json",
+      "bytes": 1102,
+      "sha256": "f5f1882af27a5ec9f19a6651680b055774dd99457fb58d6907992947d9e94347",
+      "original_location": ".tmp/m2-pid-tuning/speed-kp050-fixed-20261113-134307.csv.report.json"
+    },
+    {
+      "path": "runs/speed-kp050-fixed-20261113-134307-gains.json",
+      "bytes": 156,
+      "sha256": "d1173e708679d3a02874eb34652f193be61da09e021e86131d6fdc604ee696b3",
+      "original_location": ".tmp/m2-pid-tuning/speed-kp050-fixed-20261113-134307-gains.json"
+    },
+    {
+      "path": "failures/speed-kp050-20261113-131833.csv",
+      "bytes": 298,
+      "sha256": "9939f865173c3d804a53a8d99d703884eecd1e92c53eb7338812b7fa8a90a534",
+      "original_location": ".tmp/m2-pid-tuning/speed-kp050-20261113-131833.csv"
+    },
+    {
+      "path": "failures/speed-kp050-20261113-131833.csv.report.json",
+      "bytes": 614,
+      "sha256": "a1bb2a7b5d24be22c76750340acf8951f0fa591245536c263db68826ca6129ca",
+      "original_location": ".tmp/m2-pid-tuning/speed-kp050-20261113-131833.csv.report.json"
+    },
+    {
+      "path": "failures/speed-kp050-retry-20261113-132212.csv",
+      "bytes": 481,
+      "sha256": "3260c99bf039aa9e5ce54562f8509ef6a4babde52f15a82947434b095dd9e20a",
+      "original_location": ".tmp/m2-pid-tuning/speed-kp050-retry-20261113-132212.csv"
+    },
+    {
+      "path": "failures/speed-kp050-retry-20261113-132212.csv.report.json",
+      "bytes": 1027,
+      "sha256": "fdec81b6217a384cf7d4de78eba0506cb2c5039127cbdc99c3b749a95ba1cf29",
+      "original_location": ".tmp/m2-pid-tuning/speed-kp050-retry-20261113-132212.csv.report.json"
+    },
+    {
+      "path": "failures/speed-kp050-retry-20261113-132212-wire.json",
+      "bytes": 17363,
+      "sha256": "ae6572c6d0ff8365e93cc2566e3bd3974f266ea9a0420908be7bf045c3788f98",
+      "original_location": ".tmp/m2-pid-tuning/speed-kp050-retry-20261113-132212-wire.json"
+    },
+    {
+      "path": "failures/start-rejection-state.json",
+      "bytes": 11430,
+      "sha256": "19156850ce575d3954edc72e315d1255f42951f5e0370507a90f41bb77a7468b",
+      "original_location": ".tmp/m2-pid-tuning/start-rejection-state.json"
+    },
+    {
+      "path": "failures/retry-latest-safety-status.json",
+      "bytes": 586,
+      "sha256": "c218aa358c2d9e679729358999388c3e78e7579fbf5e21a529f8a7b68ca16b24",
+      "original_location": ".tmp/m2-pid-tuning/retry-latest-safety-status.json"
+    },
+    {
+      "path": "comparison/kp035-vs-kp050.json",
+      "bytes": 1863,
+      "sha256": "be9a34f13c296ac4cee2ab21fee9949c49c593c3743788faf769a6e8555f8754",
+      "original_location": ".tmp/m2-pid-tuning/kp035-vs-kp050.json"
+    },
+    {
+      "path": "comparison/repeatability-kp050.json",
+      "bytes": 2406,
+      "sha256": "45dfb537f6573ce5add54b7fbfd12d2f2e465b20c46209989fe5af40987be3d9",
+      "original_location": ".tmp/m2-pid-tuning/repeatability-kp050.json"
+    },
+    {
+      "path": "verification/speed-kp-050-write.json",
+      "bytes": 552,
+      "sha256": "0331550cae596a34132452c71bfc6c809968ea350143038c51534a247ab0bbf6",
+      "original_location": ".tmp/m2-pid-tuning/speed-kp-050-20261113-131749.json"
+    },
+    {
+      "path": "verification/m2-repair-host.log",
+      "bytes": 8801,
+      "sha256": "32a57c21e19e1b6ff32734405bf3c8c15c3d8cced920014031098fd7d41cc84d",
+      "original_location": ".tmp/m2-repair-host.log"
+    },
+    {
+      "path": "verification/m2-repair-arm.log",
+      "bytes": 5355,
+      "sha256": "25b63cb031a3ddba36a421730a40aac40c95051a4c9eaef9958cd2373bfe9c6e",
+      "original_location": ".tmp/m2-repair-arm.log"
+    },
+    {
+      "path": "verification/rc-return-final-host.log",
+      "bytes": 7894,
+      "sha256": "e33a1a9b510821748c4b1573a0497a870296e8572cb47561b5d0e6dfa998144c",
+      "original_location": ".tmp/rc-return-final-host.log"
+    },
+    {
+      "path": "verification/rc-return-final-arm.log",
+      "bytes": 4745,
+      "sha256": "7d66de176622c884618ed842ce3604d283f280e40f0896137d8bfab453ef4697",
+      "original_location": ".tmp/rc-return-final-arm.log"
+    },
+    {
+      "path": "verification/repeated-trial-fix-tests.log",
+      "bytes": 1618,
+      "sha256": "cbf5cfa36eb2dae34d1d846ce6a9388336926efca1ca5defd0fd255224891785",
+      "original_location": ".tmp/m2-pid-tuning/repeated-trial-fix-tests.log"
+    },
+    {
+      "path": "verification/stopped-smoke-1247.csv",
+      "bytes": 12105,
+      "sha256": "2957c0dd9a586abe3b1408c9b253b5fd0eebe8d9ce71605dfa6fe2aca64fcb9a",
+      "original_location": ".tmp/m2-trial/stopped-smoke-1247.csv"
+    },
+    {
+      "path": "verification/stopped-smoke-1247.csv.summary.json",
+      "bytes": 1827,
+      "sha256": "fe214e68d5db0f714a30c4883a567600dcad5593ff154d44f0d99461f1ce831b",
+      "original_location": ".tmp/m2-trial/stopped-smoke-1247.csv.summary.json"
+    },
+    {
+      "path": "verification/m2-flash-1247-gdb.log",
+      "bytes": 734,
+      "sha256": "05d4a4a4c294f58862c5bdf2926135636b08dac9f6fb8fc909ca91e51f6c84fa",
+      "original_location": "/home/kekeyuyu/.claude/jobs/14d24575/tmp/highrate-flash-20261113-124711-gdb.log"
+    },
+    {
+      "path": "verification/m2-flash-1247-openocd.log",
+      "bytes": 1830,
+      "sha256": "1a30fad7dba550ff783c800305af2badf2c268afc60fe37c53b67d96f88c6f16",
+      "original_location": "/home/kekeyuyu/.claude/jobs/14d24575/tmp/highrate-flash-20261113-124711-openocd.log"
+    }
+  ]
+}

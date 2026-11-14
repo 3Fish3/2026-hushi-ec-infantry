@@ -1,0 +1,731 @@
+[
+  {
+    "time": 930254.705268513,
+    "direction": "tx",
+    "type": 64,
+    "outer": 1,
+    "payload": "034044332211"
+  },
+  {
+    "time": 930254.709106432,
+    "direction": "rx",
+    "type": 192,
+    "outer": 1,
+    "body": {
+      "session": 13,
+      "config_epoch": 1,
+      "reference_epoch": 0,
+      "clock_ms": 2090293,
+      "boot_id": 0,
+      "client_nonce": 287454020,
+      "role": 0,
+      "config_complete": false,
+      "startable": true,
+      "boot_identity_available": false,
+      "identity": "infantry_app",
+      "config_kind": 2
+    }
+  },
+  {
+    "time": 930254.709514963,
+    "direction": "tx",
+    "type": 70,
+    "outer": 2,
+    "payload": "03460d0000000100000000"
+  },
+  {
+    "time": 930254.715361327,
+    "direction": "rx",
+    "type": 198,
+    "outer": 2,
+    "body": {
+      "session": 13,
+      "sequence": 1,
+      "page": 0,
+      "config_epoch": 1,
+      "reference_epoch": 0,
+      "clock_ms": 2090297,
+      "control_ms": 2090296,
+      "evaluated_us": 2090295499,
+      "boot_id": 0,
+      "source": "none",
+      "authority": false,
+      "manual_stop": false,
+      "launch_allowed": false,
+      "locally_ready": true,
+      "boot_identity_available": false,
+      "main_yaw_degraded": false,
+      "config_kind": 2,
+      "joints": {
+        "main_yaw": {
+          "angle_rad": -1.8892576694488525,
+          "rate_rad_s": -0.007326007355004549,
+          "position_valid": true,
+          "velocity_valid": true,
+          "position_age_ms": 10,
+          "velocity_age_ms": 10
+        },
+        "fire_yaw": {
+          "angle_rad": 0.0,
+          "rate_rad_s": 0.0,
+          "position_valid": false,
+          "velocity_valid": false,
+          "position_age_ms": null,
+          "velocity_age_ms": null
+        },
+        "pitch": {
+          "angle_rad": 0.0,
+          "rate_rad_s": 0.0,
+          "position_valid": false,
+          "velocity_valid": false,
+          "position_age_ms": null,
+          "velocity_age_ms": null
+        }
+      },
+      "main_platform": {
+        "validity": "valid",
+        "reason": "none",
+        "local_reference": true,
+        "odom_aligned": false,
+        "local_epoch": 1,
+        "alignment_epoch": 0,
+        "orientation_V_to_local_wxyz": [
+          0.9148688912391663,
+          0.2101273387670517,
+          0.052951350808143616,
+          0.34067246317863464
+        ],
+        "rate_V_rad_s": [
+          0.006653761025518179,
+          -0.0007127893622964621,
+          -0.0054067932069301605
+        ],
+        "heading_rad": -0.8466096520423889,
+        "odom_offset_rad": 0.0,
+        "heading_gain": 1.0,
+        "gyro_sample_us": 2090295422,
+        "ages_us": [
+          77,
+          null,
+          null
+        ],
+        "time_error_us": [
+          512,
+          null,
+          null
+        ]
+      },
+      "wheel_odom": {
+        "validity": "valid",
+        "rank_ok": true,
+        "pose_valid": true,
+        "continuous": true,
+        "twist": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "pose_xy_yaw": [
+          0.00028576681506820023,
+          -0.0006962757324799895,
+          -0.006337505299597979
+        ],
+        "skew_us": 434,
+        "residual_rad_s": 0.0,
+        "gaps": 0,
+        "age_ms": 1
+      },
+      "twist_scale": 1.0
+    }
+  },
+  {
+    "time": 930254.716488726,
+    "direction": "tx",
+    "type": 65,
+    "outer": 3,
+    "payload": "03410d000000020000000103"
+  },
+  {
+    "time": 930254.720094803,
+    "direction": "rx",
+    "type": 193,
+    "outer": 3,
+    "body": {
+      "session": 13,
+      "sequence": 2,
+      "result": 0,
+      "result_name": "ACCEPTED",
+      "reason": 0,
+      "reason_name": "none"
+    }
+  },
+  {
+    "time": 930254.720513246,
+    "direction": "tx",
+    "type": 66,
+    "outer": 4,
+    "payload": "03420d00000003000000010000000000000001040301b7b858bf000000"
+  },
+  {
+    "time": 930254.723991394,
+    "direction": "rx",
+    "type": 194,
+    "outer": 4,
+    "body": {
+      "session": 13,
+      "sequence": 3,
+      "result": 0,
+      "result_name": "ACCEPTED",
+      "reason": 0,
+      "reason_name": "none"
+    }
+  },
+  {
+    "time": 930254.724238307,
+    "direction": "tx",
+    "type": 70,
+    "outer": 5,
+    "payload": "03460d0000000400000001"
+  },
+  {
+    "time": 930254.730904282,
+    "direction": "rx",
+    "type": 198,
+    "outer": 5,
+    "body": {
+      "session": 13,
+      "sequence": 4,
+      "page": 1,
+      "config_epoch": 1,
+      "reference_epoch": 0,
+      "clock_ms": 2090312,
+      "source": "maintenance",
+      "authority": true,
+      "manual_stop": false,
+      "launch_allowed": false,
+      "domains": [
+        {
+          "domain": "chassis_lf",
+          "validity": "valid",
+          "mode": "none",
+          "execute": false,
+          "reason": "no_target",
+          "target": 0.0,
+          "measurement": 0.0,
+          "age_ms": null,
+          "velocity_age_ms": 2,
+          "requested_frame": null,
+          "adopted_frame": "joint",
+          "measured_frame": "joint",
+          "measurement_valid": true
+        },
+        {
+          "domain": "chassis_rf",
+          "validity": "valid",
+          "mode": "none",
+          "execute": false,
+          "reason": "no_target",
+          "target": 0.0,
+          "measurement": 0.0,
+          "age_ms": null,
+          "velocity_age_ms": 2,
+          "requested_frame": null,
+          "adopted_frame": "joint",
+          "measured_frame": "joint",
+          "measurement_valid": true
+        },
+        {
+          "domain": "chassis_lb",
+          "validity": "valid",
+          "mode": "none",
+          "execute": false,
+          "reason": "no_target",
+          "target": 0.0,
+          "measurement": 0.0,
+          "age_ms": null,
+          "velocity_age_ms": 2,
+          "requested_frame": null,
+          "adopted_frame": "joint",
+          "measured_frame": "joint",
+          "measurement_valid": true
+        },
+        {
+          "domain": "chassis_rb",
+          "validity": "valid",
+          "mode": "none",
+          "execute": false,
+          "reason": "no_target",
+          "target": 0.0,
+          "measurement": 0.0,
+          "age_ms": null,
+          "velocity_age_ms": 2,
+          "requested_frame": null,
+          "adopted_frame": "joint",
+          "measured_frame": "joint",
+          "measurement_valid": true
+        },
+        {
+          "domain": "main_yaw",
+          "validity": "valid",
+          "mode": "position",
+          "execute": true,
+          "reason": "none",
+          "target": -0.8465685248374939,
+          "measurement": -0.846592128276825,
+          "age_ms": 1,
+          "velocity_age_ms": 1,
+          "requested_frame": "local_inertial",
+          "adopted_frame": "local_inertial",
+          "measured_frame": "local_inertial",
+          "measurement_valid": true
+        },
+        {
+          "domain": "fire_yaw",
+          "validity": "unavailable",
+          "mode": "none",
+          "execute": false,
+          "reason": "not_configured",
+          "target": 0.0,
+          "measurement": 0.0,
+          "age_ms": null,
+          "velocity_age_ms": null,
+          "requested_frame": null,
+          "adopted_frame": "joint",
+          "measured_frame": "joint",
+          "measurement_valid": false
+        },
+        {
+          "domain": "pitch",
+          "validity": "incomplete",
+          "mode": "none",
+          "execute": false,
+          "reason": "incomplete_config",
+          "target": 0.0,
+          "measurement": 0.0,
+          "age_ms": null,
+          "velocity_age_ms": null,
+          "requested_frame": null,
+          "adopted_frame": "joint",
+          "measured_frame": "joint",
+          "measurement_valid": false
+        },
+        {
+          "domain": "friction_left",
+          "validity": "unavailable",
+          "mode": "none",
+          "execute": false,
+          "reason": "not_configured",
+          "target": 0.0,
+          "measurement": 0.0,
+          "age_ms": null,
+          "velocity_age_ms": null,
+          "requested_frame": null,
+          "adopted_frame": "joint",
+          "measured_frame": "joint",
+          "measurement_valid": false
+        },
+        {
+          "domain": "friction_right",
+          "validity": "unavailable",
+          "mode": "none",
+          "execute": false,
+          "reason": "not_configured",
+          "target": 0.0,
+          "measurement": 0.0,
+          "age_ms": null,
+          "velocity_age_ms": null,
+          "requested_frame": null,
+          "adopted_frame": "joint",
+          "measured_frame": "joint",
+          "measurement_valid": false
+        },
+        {
+          "domain": "trigger",
+          "validity": "unavailable",
+          "mode": "none",
+          "execute": false,
+          "reason": "not_configured",
+          "target": 0.0,
+          "measurement": 0.0,
+          "age_ms": null,
+          "velocity_age_ms": null,
+          "requested_frame": null,
+          "adopted_frame": "joint",
+          "measured_frame": "joint",
+          "measurement_valid": false
+        }
+      ]
+    }
+  },
+  {
+    "time": 930254.732131943,
+    "direction": "tx",
+    "type": 70,
+    "outer": 6,
+    "payload": "03460d0000000500000000"
+  },
+  {
+    "time": 930254.738718269,
+    "direction": "rx",
+    "type": 198,
+    "outer": 6,
+    "body": {
+      "session": 13,
+      "sequence": 5,
+      "page": 0,
+      "config_epoch": 1,
+      "reference_epoch": 0,
+      "clock_ms": 2090320,
+      "control_ms": 2090319,
+      "evaluated_us": 2090318584,
+      "boot_id": 0,
+      "source": "maintenance",
+      "authority": true,
+      "manual_stop": false,
+      "launch_allowed": false,
+      "locally_ready": true,
+      "boot_identity_available": false,
+      "main_yaw_degraded": false,
+      "config_kind": 2,
+      "joints": {
+        "main_yaw": {
+          "angle_rad": -1.8892576694488525,
+          "rate_rad_s": -0.007326007355004549,
+          "position_valid": true,
+          "velocity_valid": true,
+          "position_age_ms": 1,
+          "velocity_age_ms": 1
+        },
+        "fire_yaw": {
+          "angle_rad": 0.0,
+          "rate_rad_s": 0.0,
+          "position_valid": false,
+          "velocity_valid": false,
+          "position_age_ms": null,
+          "velocity_age_ms": null
+        },
+        "pitch": {
+          "angle_rad": 0.0,
+          "rate_rad_s": 0.0,
+          "position_valid": false,
+          "velocity_valid": false,
+          "position_age_ms": null,
+          "velocity_age_ms": null
+        }
+      },
+      "main_platform": {
+        "validity": "valid",
+        "reason": "none",
+        "local_reference": true,
+        "odom_aligned": false,
+        "local_epoch": 1,
+        "alignment_epoch": 0,
+        "orientation_V_to_local_wxyz": [
+          0.9148797988891602,
+          0.21009238064289093,
+          0.05292636156082153,
+          0.34066835045814514
+        ],
+        "rate_V_rad_s": [
+          -0.006129418965429068,
+          0.00035246764309704304,
+          -8.047115989029408e-05
+        ],
+        "heading_rad": -0.846623420715332,
+        "odom_offset_rad": 0.0,
+        "heading_gain": 1.0,
+        "gyro_sample_us": 2090318507,
+        "ages_us": [
+          77,
+          null,
+          null
+        ],
+        "time_error_us": [
+          511,
+          null,
+          null
+        ]
+      },
+      "wheel_odom": {
+        "validity": "valid",
+        "rank_ok": true,
+        "pose_valid": true,
+        "continuous": true,
+        "twist": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "pose_xy_yaw": [
+          0.00028576681506820023,
+          -0.0006962757324799895,
+          -0.006337505299597979
+        ],
+        "skew_us": 822,
+        "residual_rad_s": 0.0,
+        "gaps": 0,
+        "age_ms": 1
+      },
+      "twist_scale": 1.0
+    }
+  },
+  {
+    "time": 930254.73978269,
+    "direction": "tx",
+    "type": 55,
+    "outer": 7,
+    "payload": "020000000000"
+  },
+  {
+    "time": 930254.744294455,
+    "direction": "tx",
+    "type": 73,
+    "outer": 8,
+    "payload": "03490d000000060000000101030ad7233c0000003f"
+  },
+  {
+    "time": 930254.747932868,
+    "direction": "rx",
+    "type": 193,
+    "outer": 8,
+    "body": {
+      "session": 13,
+      "sequence": 6,
+      "result": 0,
+      "result_name": "ACCEPTED",
+      "reason": 0,
+      "reason_name": "none"
+    }
+  },
+  {
+    "time": 930254.748206845,
+    "direction": "tx",
+    "type": 65,
+    "outer": 9,
+    "payload": "03410d000000070000000103"
+  },
+  {
+    "time": 930254.751781563,
+    "direction": "rx",
+    "type": 193,
+    "outer": 9,
+    "body": {
+      "session": 13,
+      "sequence": 7,
+      "result": 0,
+      "result_name": "ACCEPTED",
+      "reason": 0,
+      "reason_name": "none"
+    }
+  },
+  {
+    "time": 930254.752150256,
+    "direction": "tx",
+    "type": 66,
+    "outer": 10,
+    "payload": "03420d00000008000000010000000000000001040301b7b858bf000000"
+  },
+  {
+    "time": 930254.755710885,
+    "direction": "rx",
+    "type": 194,
+    "outer": 10,
+    "body": {
+      "session": 13,
+      "sequence": 8,
+      "result": 0,
+      "result_name": "ACCEPTED",
+      "reason": 0,
+      "reason_name": "none"
+    }
+  },
+  {
+    "time": 930254.755913254,
+    "direction": "tx",
+    "type": 55,
+    "outer": 11,
+    "payload": "02012bf90700"
+  },
+  {
+    "time": 930254.764110713,
+    "direction": "tx",
+    "type": 73,
+    "outer": 12,
+    "payload": "03490d0000000900000000000300000000"
+  },
+  {
+    "time": 930254.767975486,
+    "direction": "rx",
+    "type": 193,
+    "outer": 12,
+    "body": {
+      "session": 13,
+      "sequence": 9,
+      "result": 0,
+      "result_name": "ACCEPTED",
+      "reason": 0,
+      "reason_name": "none"
+    }
+  },
+  {
+    "time": 930254.768341325,
+    "direction": "tx",
+    "type": 66,
+    "outer": 13,
+    "payload": "03420d0000000a00000001000000000000000000"
+  },
+  {
+    "time": 930254.771981116,
+    "direction": "rx",
+    "type": 194,
+    "outer": 13,
+    "body": {
+      "session": 13,
+      "sequence": 10,
+      "result": 0,
+      "result_name": "ACCEPTED",
+      "reason": 0,
+      "reason_name": "none"
+    }
+  },
+  {
+    "time": 930254.772271771,
+    "direction": "tx",
+    "type": 65,
+    "outer": 14,
+    "payload": "03410d0000000b0000000003"
+  },
+  {
+    "time": 930254.775843873,
+    "direction": "rx",
+    "type": 193,
+    "outer": 14,
+    "body": {
+      "session": 13,
+      "sequence": 11,
+      "result": 0,
+      "result_name": "ACCEPTED",
+      "reason": 0,
+      "reason_name": "none"
+    }
+  },
+  {
+    "time": 930254.776138483,
+    "direction": "tx",
+    "type": 70,
+    "outer": 15,
+    "payload": "03460d0000000c00000000"
+  },
+  {
+    "time": 930254.782844905,
+    "direction": "rx",
+    "type": 198,
+    "outer": 15,
+    "body": {
+      "session": 13,
+      "sequence": 12,
+      "page": 0,
+      "config_epoch": 1,
+      "reference_epoch": 0,
+      "clock_ms": 2090364,
+      "control_ms": 2090363,
+      "evaluated_us": 2090362497,
+      "boot_id": 0,
+      "source": "none",
+      "authority": false,
+      "manual_stop": false,
+      "launch_allowed": false,
+      "locally_ready": true,
+      "boot_identity_available": false,
+      "main_yaw_degraded": false,
+      "config_kind": 2,
+      "joints": {
+        "main_yaw": {
+          "angle_rad": -1.8892576694488525,
+          "rate_rad_s": -0.007326007355004549,
+          "position_valid": true,
+          "velocity_valid": true,
+          "position_age_ms": 7,
+          "velocity_age_ms": 7
+        },
+        "fire_yaw": {
+          "angle_rad": 0.0,
+          "rate_rad_s": 0.0,
+          "position_valid": false,
+          "velocity_valid": false,
+          "position_age_ms": null,
+          "velocity_age_ms": null
+        },
+        "pitch": {
+          "angle_rad": 0.0,
+          "rate_rad_s": 0.0,
+          "position_valid": false,
+          "velocity_valid": false,
+          "position_age_ms": null,
+          "velocity_age_ms": null
+        }
+      },
+      "main_platform": {
+        "validity": "valid",
+        "reason": "none",
+        "local_reference": true,
+        "odom_aligned": false,
+        "local_epoch": 1,
+        "alignment_epoch": 0,
+        "orientation_V_to_local_wxyz": [
+          0.9148823618888855,
+          0.2100609689950943,
+          0.0529458224773407,
+          0.340677946805954
+        ],
+        "rate_V_rad_s": [
+          0.006653729826211929,
+          -0.027344370260834694,
+          -0.02351628988981247
+        ],
+        "heading_rad": -0.8466212749481201,
+        "odom_offset_rad": 0.0,
+        "heading_gain": 1.0,
+        "gyro_sample_us": 2090362421,
+        "ages_us": [
+          76,
+          null,
+          null
+        ],
+        "time_error_us": [
+          512,
+          null,
+          null
+        ]
+      },
+      "wheel_odom": {
+        "validity": "valid",
+        "rank_ok": true,
+        "pose_valid": true,
+        "continuous": true,
+        "twist": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "pose_xy_yaw": [
+          0.00028576681506820023,
+          -0.0006962757324799895,
+          -0.006337505299597979
+        ],
+        "skew_us": 622,
+        "residual_rad_s": 0.0,
+        "gaps": 0,
+        "age_ms": 1
+      },
+      "twist_scale": 1.0
+    }
+  },
+  {
+    "time": 930254.784032653,
+    "direction": "tx",
+    "type": 55,
+    "outer": 16,
+    "payload": "02012cf90700"
+  }
+]

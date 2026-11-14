@@ -1,0 +1,61 @@
+[1/8] Building CXX object CMakeFiles/ec_infantry_app.dir/robots/infantry/app/infantry_telemetry.cpp.obj
+[2/8] Building CXX object CMakeFiles/ec_infantry_app.dir/robots/infantry/app/infantry_param_apply.cpp.obj
+[3/8] Building CXX object CMakeFiles/ec_infantry_app.dir/robots/infantry/app/infantry_cycle.cpp.obj
+[4/8] Building CXX object CMakeFiles/ec_infantry_app.dir/robots/infantry/app/infantry_execution.cpp.obj
+[5/8] Building CXX object CMakeFiles/ec_infantry_app.dir/robots/infantry/app/infantry_protocol.cpp.obj
+[6/8] Linking CXX static library libec_infantry_app.a
+[7/8] Building CXX object boards/infantry_f407/CMakeFiles/infantry_app.dir/src/board_app.cpp.obj
+[8/8] Linking CXX executable boards/infantry_f407/infantry_app.elf
+/usr/arm-none-eabi/bin/ld: /usr/lib/gcc/arm-none-eabi/16.2.0/../../../../arm-none-eabi/lib/thumb/v7e-m+fp/hard/libc_nano.a(libc_a-closer.o): in function `_close_r':
+/build/arm-none-eabi-newlib/src/build-nano/arm-none-eabi/thumb/v7e-m+fp/hard/newlib/../../../../../../newlib-4.6.0.20260123/newlib/libc/reent/closer.c:47:(.text._close_r+0xc): warning: _close is not implemented and will always fail
+/usr/arm-none-eabi/bin/ld: /usr/lib/gcc/arm-none-eabi/16.2.0/../../../../arm-none-eabi/lib/thumb/v7e-m+fp/hard/libc_nano.a(libc_a-closer.o): note: the message above does not take linker garbage collection into account
+/usr/arm-none-eabi/bin/ld: /usr/lib/gcc/arm-none-eabi/16.2.0/../../../../arm-none-eabi/lib/thumb/v7e-m+fp/hard/libc_nano.a(libc_a-lseekr.o): in function `_lseek_r':
+/build/arm-none-eabi-newlib/src/build-nano/arm-none-eabi/thumb/v7e-m+fp/hard/newlib/../../../../../../newlib-4.6.0.20260123/newlib/libc/reent/lseekr.c:49:(.text._lseek_r+0x10): warning: _lseek is not implemented and will always fail
+/usr/arm-none-eabi/bin/ld: /usr/lib/gcc/arm-none-eabi/16.2.0/../../../../arm-none-eabi/lib/thumb/v7e-m+fp/hard/libc_nano.a(libc_a-lseekr.o): note: the message above does not take linker garbage collection into account
+/usr/arm-none-eabi/bin/ld: /usr/lib/gcc/arm-none-eabi/16.2.0/../../../../arm-none-eabi/lib/thumb/v7e-m+fp/hard/libc_nano.a(libc_a-readr.o): in function `_read_r':
+/build/arm-none-eabi-newlib/src/build-nano/arm-none-eabi/thumb/v7e-m+fp/hard/newlib/../../../../../../newlib-4.6.0.20260123/newlib/libc/reent/readr.c:49:(.text._read_r+0x10): warning: _read is not implemented and will always fail
+/usr/arm-none-eabi/bin/ld: /usr/lib/gcc/arm-none-eabi/16.2.0/../../../../arm-none-eabi/lib/thumb/v7e-m+fp/hard/libc_nano.a(libc_a-readr.o): note: the message above does not take linker garbage collection into account
+/usr/arm-none-eabi/bin/ld: /usr/lib/gcc/arm-none-eabi/16.2.0/../../../../arm-none-eabi/lib/thumb/v7e-m+fp/hard/libc_nano.a(libc_a-writer.o): in function `_write_r':
+/build/arm-none-eabi-newlib/src/build-nano/arm-none-eabi/thumb/v7e-m+fp/hard/newlib/../../../../../../newlib-4.6.0.20260123/newlib/libc/reent/writer.c:49:(.text._write_r+0x10): warning: _write is not implemented and will always fail
+/usr/arm-none-eabi/bin/ld: /usr/lib/gcc/arm-none-eabi/16.2.0/../../../../arm-none-eabi/lib/thumb/v7e-m+fp/hard/libc_nano.a(libc_a-writer.o): note: the message above does not take linker garbage collection into account
+Memory region         Used Size  Region Size  %age Used
+             RAM:      118216 B       128 KB     90.19%
+          CCMRAM:           0 B        64 KB      0.00%
+           FLASH:      230376 B         1 MB     21.97%
+   text	   data	    bss	    dec	    hex	filename
+ 187836	  42528	  75688	 306052	  4ab84	/home/kekeyuyu/projects/步兵/infantry/build/infantry-app-arm-Release/boards/infantry_f407/infantry_app.elf
+{
+  "result": "pass",
+  "elf": "/home/kekeyuyu/projects/\u6b65\u5175/infantry/build/infantry-app-arm-Release/boards/infantry_f407/infantry_app.elf",
+  "image_bytes": 230376,
+  "elf_sha256": "5192bc79fb4ce49370c922d183c63a20c051c62ae10b2becaa72709f00cae588",
+  "bin_sha256": "0628cf082ea0501deb7cd38743d00498e53b92c19d139d5d1dfea5606f4ba882",
+  "image_role": "infantry APP (5 installed DJI + 1 DM, 1 kHz, calibration incomplete)",
+  "firmware_label": "app-infantry-observe",
+  "deployment_summary": {
+    "magic": 1162035536,
+    "layout": 2,
+    "kind": 2,
+    "dji_capacity": 9,
+    "dm_capacity": 1,
+    "installed_dji": 5,
+    "installed_dm": 1,
+    "synthetic_values": 0,
+    "unknown_origin_installed": 0,
+    "harness_dji": 5,
+    "harness_dm": 1,
+    "dji_address_0": 257,
+    "dji_address_1": 513,
+    "dji_address_2": 769,
+    "dji_address_3": 1025,
+    "dji_address_4": 1282,
+    "dji_address_5": 0,
+    "dji_address_6": 0,
+    "dji_address_7": 0,
+    "dji_address_8": 0,
+    "dm_address": 328961
+  },
+  "scope": "offline image and source configuration checks only; no hardware execution, no probe, no flashing"
+}
+
+exit=0
