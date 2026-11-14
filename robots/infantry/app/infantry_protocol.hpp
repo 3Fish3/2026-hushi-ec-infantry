@@ -35,6 +35,7 @@ enum class MessageType : std::uint8_t {
     status = 0x46,
     diagnostics = 0x47,
     permit = 0x48,
+    sweep = 0x49,
     hello_ack = 0xc0,
     ack = 0xc1,
     targets_ack = 0xc2,
@@ -201,6 +202,9 @@ private:
         std::span<const std::uint8_t> payload, Tick now) noexcept;
     [[nodiscard]] std::size_t handle_param_write(std::span<std::uint8_t> response,
         std::span<const std::uint8_t> payload, Tick now) noexcept;
+    // 激励启停: 只有当前维护持权者可操作; 已受理的启动仍需执行层全部保护成立.
+    [[nodiscard]] std::size_t handle_sweep(std::span<std::uint8_t> response,
+        std::span<const std::uint8_t> payload, Tick now) noexcept;
     [[nodiscard]] std::size_t handle_permit(std::span<std::uint8_t> response,
         std::span<const std::uint8_t> payload, Tick now) noexcept;
     [[nodiscard]] std::size_t handle_status(std::span<std::uint8_t> response,
@@ -210,7 +214,8 @@ private:
     // 非幂等请求 (会改变状态): 同序号重传必须回放原完整响应, 不重复执行.
     [[nodiscard]] static bool non_idempotent_request(MessageType type) noexcept;
     [[nodiscard]] static bool mutation_request(MessageType type) noexcept {
-        return type == MessageType::authorize || type == MessageType::align || type == MessageType::param_write;
+        return type == MessageType::authorize || type == MessageType::align ||
+            type == MessageType::param_write || type == MessageType::sweep;
     }
     // 一个待确认变更槽与最后消息槽分开. 目标/只读流推进序号不覆盖变更结果;
     // 新变更覆盖旧槽. 完整请求逐字节比较, 不把散列碰撞当成同一请求.

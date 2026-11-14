@@ -1,0 +1,2 @@
+sequence,timestamp_us,reference_epoch,target_heading_rad,heading_rad,heading_rate_rad_s,dm_position_rad,dm_velocity_rad_s,torque_command_nm,torque_feedback_nm,speed_target_rad_s,speed_p_nm,speed_i_nm,flags,reason,feedback_age_ms,sweep_run_id,sweep_hz,requested_excitation_nm,applied_excitation_nm
+522539,2090327141,0,-0.8465685248374939,-0.846609354019165,0.004257147200405598,-1.8892576694488525,-0.007326007355004549,0.0,0.0024420025292783976,0.0,0.0,0.0,327,0,8,1,0.0,0.0,0.0

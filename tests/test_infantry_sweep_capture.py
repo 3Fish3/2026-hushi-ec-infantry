@@ -42,13 +42,30 @@ GOLDEN, sys.argv[1:] = golden_argument(sys.argv[1:])
 MASK = 0xFFFFFFFF
 
 
+def pack_record(sequence: int, timestamp_us: int, reference_epoch: int,
+                floats: list[float] | tuple[float, ...] = (0.0,) * 10,
+                flags: int = 0, reason: int = 0, feedback_age_ms: int = 0,
+                sweep_run_id: int = 0, sweep_fields=(0.0, 0.0, 0.0)) -> bytes:
+    """SYNTHETIC schema 2 记录: '<III10fHBBI3f', 72 B."""
+    assert len(floats) == 10 and len(sweep_fields) == 3
+    return struct.pack('<III10fHBBI3f', sequence, timestamp_us, reference_epoch,
+                       *floats, flags, reason, feedback_age_ms, sweep_run_id,
+                       *sweep_fields)
+
+
+def page(schema: int, op: int, count: int, first: int, next_seq: int,
+         earliest: int, rows: bytes = b'') -> bytes:
+    return struct.pack('<BBBBIII', schema, sweep.RESPONSE, op, count,
+                       first, next_seq, earliest) + rows
+
+
 def delta(a: int, b: int) -> int:
     """uint32 模差, 只在 SYNTHETIC 夹具内用于回绕比较."""
     return (a - b) & MASK
 
 
 class FakeRing:
-    """SYNTHETIC 自由运行 1 kHz 环形缓存: 按墙钟时间产出, 与主机是否请求无关."""
+    """SYNTHETIC 1 kHz 环形缓存 (schema 2: 容量 128 条): 记录 72 B, 每页最多 3 条."""
 
     def __init__(self, *, start_seq: int = 0, start_us: int = 0, period_us: int = 1000,
                  epoch: int = 7, capacity: int = 128, flags: int = 0x7f,
@@ -83,9 +100,10 @@ class FakeRing:
             epoch = self.epoch_new if (self.epoch_after is not None
                                        and self.produced >= self.epoch_after) else self.epoch
             values = [self.produced + 0.25 * index for index in range(10)]
-            self.records.append((self.next, struct.pack(
-                '<III10fHBB', self.next, timestamp, epoch, *values,
-                self.flags, 3, self.produced % 250)))
+            self.records.append((self.next, pack_record(
+                self.next, timestamp, epoch, values, self.flags, 3,
+                self.produced % 250, sweep_run_id=5,
+                sweep_fields=(9.0, 0.25, 0.1))))
             self.next = (self.next + 1) & MASK
             self.produced += 1
             while len(self.records) > self.capacity:
@@ -118,7 +136,7 @@ class FakeRing:
             start = earliest if (ahead or stale) else cursor
             span = delta(self.next, start)
             rows = [record for seq, record in self.records
-                    if delta(seq, start) < span][:4]
+                    if delta(seq, start) < span][:sweep.PAGE]
         return struct.pack('<BBBBIII', sweep.SCHEMA, sweep.RESPONSE, op, len(rows),
                            start, self.next, earliest) + b''.join(rows)
 
@@ -248,46 +266,62 @@ class FakeTransport:
 
 class PacketTests(unittest.TestCase):
     def test_layout(self):
-        self.assertEqual(sweep.RECORD.size, 56)
-        self.assertEqual(sweep.HEADER.size + 4 * sweep.RECORD.size, 240)
+        # schema 2: 72 B 记录, 页上限 3 条 = 232 B.
+        self.assertEqual(sweep.SCHEMA, 2)
+        self.assertEqual(sweep.RECORD.size, 72)
+        self.assertEqual(sweep.PAGE, 3)
+        self.assertEqual(sweep.RECORD.format, '<III10fHBBI3f')
+        self.assertEqual(sweep.HEADER.size + 3 * sweep.RECORD.size, 232)
+        self.assertEqual(sweep.FIELDS[-4:], ('sweep_run_id', 'sweep_hz',
+                                            'requested_excitation_nm',
+                                            'applied_excitation_nm'))
+        self.assertEqual(sweep.FLAG_NAMES[7:],
+                         ('sweep_running', 'sweep_inhibited', 'sweep_angle'))
+        # 记录布局未变, 仅新增 flag 位: 已知有效位上限为 0x3ff.
+        self.assertLessEqual((1 << len(sweep.FLAG_NAMES)) - 1, 0x3FF)
 
     def test_page(self):
-        sample = struct.pack('<III10fHBB', 4, 1000, 10, *([1.5] * 10), 0b111, 0, 2)
-        packet = struct.pack('<BBBBIII', 1, 0xb7, 1, 1, 4, 5, 4) + sample
-        page = sweep.decode_page(packet, 1)
-        self.assertEqual(page['rows'][0]['sequence'], 4)
-        self.assertAlmostEqual(page['rows'][0]['dm_velocity_rad_s'], 1.5)
-        self.assertEqual(page['rows'][0]['feedback_age_ms'], 2)
+        row = pack_record(4, 1000, 10, [1.5] * 10, 0b111, 0, 2, 9, (40.0, 0.3, 0.2))
+        decoded = sweep.decode_page(page(2, 1, 1, 4, 5, 4, row), 1)
+        self.assertEqual(decoded['rows'][0]['sequence'], 4)
+        self.assertAlmostEqual(decoded['rows'][0]['dm_velocity_rad_s'], 1.5)
+        self.assertEqual(decoded['rows'][0]['feedback_age_ms'], 2)
+        self.assertEqual(decoded['rows'][0]['sweep_run_id'], 9)
+        self.assertAlmostEqual(decoded['rows'][0]['sweep_hz'], 40.0)
+        self.assertAlmostEqual(decoded['rows'][0]['applied_excitation_nm'], 0.2)
 
     def test_reject_bad_size(self):
-        data = struct.pack('<BBBBIII', 1, 0xb7, 1, 1, 4, 5, 4)
         with self.assertRaises(sweep.CaptureError):
-            sweep.decode_page(data, 1)
+            sweep.decode_page(page(2, 1, 1, 4, 5, 4), 1)
+        with self.assertRaises(sweep.CaptureError):  # 4 条已超出 schema 2 的页上限
+            sweep.decode_page(page(2, 1, 4, 4, 8, 4, pack_record(4, 0, 10)), 1)
 
     def test_reject_gap(self):
-        sample = struct.pack('<III10fHBB', 8, 1000, 10, *([0.] * 10), 0, 0, 0)
-        data = struct.pack('<BBBBIII', 1, 0xb7, 1, 1, 4, 9, 4) + sample
+        # 页内记录序号出现空洞: 声称 first=8 但记录实际是 9.
+        row = pack_record(9, 1000, 10)
         with self.assertRaises(sweep.CaptureError):
-            sweep.decode_page(data, 1)
+            sweep.decode_page(page(2, 1, 1, 8, 9, 4, row), 1)
+        # 页头窗口本身越界同样拒绝.
+        with self.assertRaises(sweep.CaptureError):
+            sweep.decode_page(page(2, 1, 1, 8, 9, 10, pack_record(8, 1000, 10)), 1)
 
     def test_reject_bounds_and_identity(self):
-        empty = struct.pack('<BBBBIII', 1, 0xb7, 1, 0, 4, 4, 4)
+        empty = page(2, 1, 0, 4, 4, 4)
         self.assertEqual(sweep.decode_page(empty, 1)['next'], 4)
         with self.assertRaises(sweep.CaptureError):  # first 4 < earliest 5
-            sweep.decode_page(struct.pack('<BBBBIII', 1, 0xb7, 1, 0, 4, 4, 5), 1)
+            sweep.decode_page(page(2, 1, 0, 4, 4, 5), 1)
         with self.assertRaises(sweep.CaptureError):  # 声称的 count 超出 next
-            sweep.decode_page(struct.pack('<BBBBIII', 1, 0xb7, 1, 2, 5, 4, 0),
-                              1)
+            sweep.decode_page(page(2, 1, 2, 5, 4, 0), 1)
         with self.assertRaises(sweep.CaptureError):  # op 不符
             sweep.decode_page(empty, 0)
-        with self.assertRaises(sweep.CaptureError):  # schema 不符
-            sweep.decode_page(struct.pack('<BBBBIII', 2, 0xb7, 1, 0, 4, 4, 4), 1)
+        with self.assertRaises(sweep.CaptureError):  # schema 1 已过期
+            sweep.decode_page(page(1, 1, 0, 4, 4, 4), 1)
 
     def test_status_page_must_be_empty_at_next(self):
-        ok = struct.pack('<BBBBIII', 1, 0xb7, 0, 0, 9, 9, 2)
+        ok = page(2, 0, 0, 9, 9, 2)
         self.assertEqual(sweep.decode_page(ok, 0)['next'], 9)
         with self.assertRaises(sweep.CaptureError):
-            sweep.decode_page(struct.pack('<BBBBIII', 1, 0xb7, 0, 1, 9, 9, 2) + bytes(56), 0)
+            sweep.decode_page(page(2, 0, 1, 9, 9, 2, pack_record(9, 0, 1)), 0)
 
     def test_validity_bits_guard_floats(self):
         row = dict.fromkeys(sweep.FIELDS, 0)
@@ -305,13 +339,14 @@ class BaselineTests(unittest.TestCase):
     """原始包内既有用例: 页解析与错误拒绝."""
 
     def test_status_and_page_decode(self):
-        page = sweep.decode_page(
-            struct.pack('<BBBBIII', 1, 0xb7, 1, 2, 126, 130, 2)
-            + b''.join(struct.pack('<III10fHBB', seq, seq * 1000, 1,
-                                   *([seq + i * 0.5 for i in range(10)]), 0x7f, 0, 1)
-                       for seq in (126, 127)), 1)
-        self.assertEqual([row['sequence'] for row in page['rows']], [126, 127])
-        self.assertEqual((page['first'], page['next'], page['earliest']), (126, 130, 2))
+        decoded = sweep.decode_page(page(
+            2, 1, 2, 126, 130, 2,
+            b''.join(pack_record(seq, seq * 1000, 1,
+                                 [seq + i * 0.5 for i in range(10)], 0x7f, 0, 1)
+                     for seq in (126, 127))), 1)
+        self.assertEqual([row['sequence'] for row in decoded['rows']], [126, 127])
+        self.assertEqual((decoded['first'], decoded['next'], decoded['earliest']),
+                         (126, 130, 2))
 
 
 class GoldenTests(unittest.TestCase):
@@ -326,16 +361,18 @@ class GoldenTests(unittest.TestCase):
         self.assertEqual(len(frames), 1)
         message_type, sequence, body = frames[0]
         self.assertEqual((message_type, sequence), (sweep.RESPONSE, 0x7e7d))
-        page = sweep.decode_page(body, 1)
-        self.assertEqual((page['first'], page['next'], page['earliest']), (126, 130, 2))
-        self.assertEqual([row['sequence'] for row in page['rows']], [126, 127, 128, 129])
-        self.assertAlmostEqual(page['rows'][0]['target_heading_rad'], 3.25)
+        decoded = sweep.decode_page(body, 1)
+        self.assertEqual(decoded['next'], 134)
+        self.assertEqual(decoded['earliest'], 6)
+        self.assertEqual(decoded['first'], 6)
+        self.assertEqual([row['sequence'] for row in decoded['rows']], [6, 7, 8])
+        self.assertAlmostEqual(decoded['rows'][0]['target_heading_rad'], 3.25)
         strides = {b['timestamp_us'] - a['timestamp_us']
-                   for a, b in zip(page['rows'], page['rows'][1:])}
+                   for a, b in zip(decoded['rows'], decoded['rows'][1:])}
         self.assertEqual(strides, {1000})  # 相邻样本固定 1 ms
-        values = [row['heading_rad'] for row in page['rows']]
+        values = [row['heading_rad'] for row in decoded['rows']]
         self.assertEqual(len(set(values)), len(values))
-        for row in page['rows']:
+        for row in decoded['rows']:
             self.assertTrue(row['flags'] & 0x7f)
             sweep.validate_sample(row)
         self.assertEqual(decoder.rejected, 0)
@@ -437,7 +474,8 @@ class CollectTests(unittest.TestCase):
         self.addCleanup(directory.cleanup)
         path = Path(directory.name) / 'gap.csv'
         with self.assertRaises(sweep.CaptureError) as caught:
-            sweep.collect(FakeTransport(FakeRing(), jump_after_pages=1, jump=400),
+            # 覆盖 128 条环形容量 (schema 2): 一次跳跃必须超过 128 条才产生真实缺口.
+            sweep.collect(FakeTransport(FakeRing(), jump_after_pages=1, jump=200),
                           path, 0.5, request_timeout=0.2, stall_timeout=0.2)
         self.assertIn('data gap', str(caught.exception))
         summary = json.loads(sweep.summary_path(path).read_text(encoding='utf-8'))
@@ -523,15 +561,17 @@ class CollectTests(unittest.TestCase):
         self.assertTrue(meta['complete'])
         self.assertEqual(transport.max_inflight_seen, sweep.INFLIGHT)
         cursors = [cursor for cursor, _ in transport.page_requests]
-        self.assertEqual(len(cursors), len(set(cursors)))  # 无重复请求
         for cursor, produced in transport.page_requests:
             self.assertLessEqual(cursor, produced, '不得向尚未产生的游标发页请求')
-        # 常规分页游标按 4 步进; 只有"尾部不足一页"时才允许单独请求当前 next.
-        start = transport.page_requests[0][0]
+        # 只有"尾部空页探测"可能重复同一游标 (空页是重新获知 next 的手段);
+        # 已返回过整页的游标绝不再请求.
+        repeats = {c for c in cursors if cursors.count(c) > 1}
         for cursor, produced in transport.page_requests:
-            aligned = delta(cursor, start) % sweep.PAGE == 0
-            self.assertTrue(aligned or cursor == produced,
-                            f'游标 {cursor} 既非 4 对齐也不是尾部已产生位置 {produced}')
+            if cursor in repeats:
+                self.assertEqual(cursor, produced, f'已产生游标 {cursor} 被重复请求')
+        # 游标单调前进, 每次最多跨一页; 部分页之后步进会小于 PAGE, 这是正常进展而非跳跃.
+        steps = [delta(b, a) for a, b in zip(cursors, cursors[1:])]
+        self.assertTrue(all(0 < step <= sweep.PAGE for step in steps), steps)
         self.assertEqual(meta['lost_replies'], 0)
         self.assertEqual(meta['overrun_records'], 0)
         self.assertEqual(meta['timing']['gap_count'], 0)

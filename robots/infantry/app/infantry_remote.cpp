@@ -108,6 +108,11 @@ RemoteCommand RemoteMapper::step(const std::optional<input::Dr16Snapshot>& sampl
     ++diagnostics_.frames;
     if (!std::isfinite(dt_s) || dt_s <= 0.0f) { dt_s = 0.0f; }
 
+    // 激励维护组合: 左下 + 右下. 只表示"允许维护会话接管", 本身不使能电机;
+    // 该组合下不产生本地/Jetson 运动请求, 也不进入小陀螺, 避免维护期间底盘自转.
+    const bool maintenance_combo = config_.infantry_controls &&
+        sample->switch_left == drivers::Dr16Switch::down &&
+        sample->switch_right == drivers::Dr16Switch::down;
     // 左拨杆: 上=本地, 中=待机/释放正常来源, 下=Jetson. 遥控自身不产生 Jetson 目标.
     const auto previous_intent = intent_;
     // 步兵左拨杆中挡是键鼠操纵 (旧工程 switch1==3), 同属本地来源; 哨兵中挡仍是待机/释放.
@@ -115,7 +120,9 @@ RemoteCommand RemoteMapper::step(const std::optional<input::Dr16Snapshot>& sampl
     switch (sample->switch_left) {
     case drivers::Dr16Switch::up: intent_ = SourceIntent::local; break;
     case drivers::Dr16Switch::mid: intent_ = mid_intent; break;
-    case drivers::Dr16Switch::down: intent_ = SourceIntent::host; break;
+    case drivers::Dr16Switch::down:
+        intent_ = maintenance_combo ? SourceIntent::standby : SourceIntent::host;
+        break;
     case drivers::Dr16Switch::unknown: intent_ = SourceIntent::none; break;
     }
     if (intent_ != previous_intent) {
@@ -131,7 +138,7 @@ RemoteCommand RemoteMapper::step(const std::optional<input::Dr16Snapshot>& sampl
         ? drivers::Dr16Switch::mid : drivers::Dr16Switch::down);
     out.manual_stop = manual_stop_;
     out.intent = manual_stop_ ? SourceIntent::standby : intent_;
-    out.rotation_gear = sample->switch_right == (config_.infantry_controls
+    out.rotation_gear = !maintenance_combo && sample->switch_right == (config_.infantry_controls
         ? drivers::Dr16Switch::down : drivers::Dr16Switch::up);
 
     const auto previous_layer = layer_;

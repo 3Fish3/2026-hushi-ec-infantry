@@ -619,7 +619,61 @@ bool InfantryExecutor::pitch_output_fresh() noexcept {
     return false;
 }
 
+sweep::Guard InfantryExecutor::sweep_guard(const InfantryApp& app, Tick now) const noexcept {
+    const auto& snap = app.snapshot();
+    const auto& exe = snap.executions[domain_index(Domain::main_yaw)];
+    const auto& plat = snap.main_yaw;
+    const auto* dm = dm_devices_[0] ? &*dm_devices_[0] : nullptr;
+    sweep::Guard g{};
+    // 维护权是激励的前置资格: 本地遥控或未持权都不能启动/维持.
+    g.maintenance = snap.permission.authority && !snap.permission.manual_stop &&
+        snap.permission.source == Source::maintenance;
+    g.running = exe.execute && config_.infantry_controls;
+    g.imu_valid = plat.validity == DomainValidity::valid && plat.value.valid;
+    g.dm_enabled = dm != nullptr && dm->enabled(now);
+    g.dm_fresh = dm != nullptr && dm->online(now) && !dm->faulted(now);
+    g.target_valid = exe.adopted_target.has_value() && exe.frame == YawFrame::local_inertial;
+    // CAN 发送失败在下方的 dm_tx_error 分支立即中止, 这里保留已观测的健康状态.
+    g.can_healthy = pitch_stats_.last_result != drivers::DjiGroupStatus::busy &&
+        pitch_stats_.last_result != drivers::DjiGroupStatus::error;
+    g.reference_epoch = app.domain_reference_epoch(Domain::main_yaw);
+    g.heading_rad = plat.continuous_heading;
+    g.rate_rad_s = plat.value.heading_rate;
+    return g;
+}
+
+bool InfantryExecutor::start_sweep(const sweep::Plan& plan, Tick now, const InfantryApp& app) noexcept {
+    const auto& exe = app.snapshot().executions[domain_index(Domain::main_yaw)];
+    const auto& platform = app.snapshot().main_yaw;
+    // 显式启动只接受当前附近的惯性保持目标, 避免先追逐旧角再进入试验.
+    if (!config_.infantry_controls || config_.dm[0].domain != Domain::main_yaw || !exe.adopted_target ||
+        !std::isfinite(*exe.adopted_target) ||
+        std::fabs(control::shortest_arc_error(*exe.adopted_target, platform.continuous_heading)) > 0.1f) {
+        return false;
+    }
+    return sweep_engine_.start(plan, clock_ ? clock_().us : now.ms * 1000u, sweep_guard(app, now));
+}
+
+bool InfantryExecutor::release_sweep_after_stop(Tick now, const InfantryApp& app) noexcept {
+    const auto& state = app.snapshot();
+    if (!config_.infantry_controls || config_.dm[0].domain != Domain::main_yaw ||
+        !sweep_engine_.finished() || !state.input.remote_online ||
+        !state.permission.manual_stop || state.permission.authority ||
+        state.executions[domain_index(Domain::main_yaw)].execute || !dm_devices_[0]) { return false; }
+    const auto& feedback = dm_devices_[0]->state().feedback;
+    if (!feedback.fresh_at(now, config_.dm[0].feedback_ttl) ||
+        feedback.value.status != drivers::DmStatus::disabled) { return false; }
+    return sweep_engine_.clear_after_stop();
+}
+
 void InfantryExecutor::step_pitch(Tick now, const InfantryApp& app, float dt_s, bool force_stop) noexcept {
+    // 先推进激励状态机; 任一保护失效都会中止, 并把本周期需求清零.
+    if (sweep_engine_.active()) {
+        if (force_stop) { sweep_engine_.abort(sweep::Stop::clock); }
+        else { (void)sweep_engine_.step(clock_ ? clock_().us : now.ms * 1000u, sweep_guard(app, now)); }
+    }
+    // 完成/中止均走既有 disable 路径且锁存; 新 START 可进入 arming 重新确认使能.
+    force_stop = force_stop || sweep_engine_.finished();
     if (!config_.dm[0].installed) { return; }
     if (!dm_devices_[0]) {
         // 地址明确但 MIT 量程未测: 只按既有间隔请求 disable, 不构造假量程或使能.
@@ -750,8 +804,15 @@ void InfantryExecutor::step_pitch(Tick now, const InfantryApp& app, float dt_s, 
         }
         const auto& limits = dm_yaw_speed_pid_->config();
         assisted = std::clamp(assisted, limits.output_min, limits.output_max);
-        command = drivers::DmMitCommand{0.0f, 0.0f, 0.0f, 0.0f,
-            assisted * static_cast<float>(gimbal.torque_direction)};
+        // 先映射为电机侧再注入力矩, requested/applied/最终命令均为同一电机坐标.
+        const float direction = static_cast<float>(gimbal.torque_direction);
+        const float baseline = assisted * direction;
+        const float motor_min = direction > 0 ? limits.output_min : -limits.output_max;
+        const float motor_max = direction > 0 ? limits.output_max : -limits.output_min;
+        const float commanded = std::clamp(baseline + sweep_engine_.status().requested_nm,
+            motor_min, motor_max);
+        command = drivers::DmMitCommand{0.0f, 0.0f, 0.0f, 0.0f, commanded};
+        pending_sweep_nm_ = commanded - baseline;
     } else {
         command = drivers::DmMitCommand{target->value + joint.zero_offset_rad.value_or(0.0f),
             0.0f, config_.dm[0].mit_kp.value_or(0.0f), config_.dm[0].mit_kd.value_or(0.0f), 0.0f};
@@ -769,9 +830,13 @@ void InfantryExecutor::step_pitch(Tick now, const InfantryApp& app, float dt_s, 
         if (world_yaw) {
             main_yaw_stats_.torque_command_nm = command.torque_nm;
             main_yaw_stats_.torque_submitted = true;
+            // 同为电机侧增量, 只有 CAN 队列接纳后才记为 applied.
+            sweep_engine_.applied(pending_sweep_nm_);
         }
     } else {
         ++stats_.dm_tx_error;
+        // CAN 队列拒绝时立即中止本次激励, 不在下一周期重试同一份注入.
+        if (sweep_engine_.active()) { sweep_engine_.abort(sweep::Stop::can_error); }
     }
 }
 
@@ -784,6 +849,8 @@ void InfantryExecutor::step(Tick now, float dt_s, const InfantryApp& app,
     main_yaw_stats_.speed_pid_p_nm = 0.0f;
     main_yaw_stats_.speed_pid_i_nm = 0.0f;
     main_yaw_stats_.pid_trace_valid = false;
+    pending_sweep_nm_ = 0.0f;
+    sweep_engine_.applied(0.0f); // 本周期尚未提交时不能沿用上一周期的 applied
     unreachable_.fill(false);
     rejected_.fill(false);
     outputs_.fill(std::nullopt);

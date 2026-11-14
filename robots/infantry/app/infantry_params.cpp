@@ -125,11 +125,7 @@ ParamStore::ParamStore(const InfantryConfig& config) noexcept {
             0.0f, 5.0f, "gimbal_speed_ki", "");
         add(vehicle_slot, ParamKind::hot, Domain::main_yaw, true, 15, gimbal.speed_pid.kd,
             0.0f, 1.0f, "gimbal_speed_kd", "");
-        // 频率响应整定: 正弦注入幅度/频率; 幅度 0 = 关闭注入.
-        add(vehicle_slot, ParamKind::hot, Domain::main_yaw, true, 16, 0.0f,
-            0.0f, 0.6f, "sweep_amplitude_rad", "rad");
-        add(vehicle_slot, ParamKind::hot, Domain::main_yaw, true, 17, 1.0f,
-            0.05f, 12.0f, "sweep_frequency_hz", "Hz");
+        // 16/17 原无限正弦参数已退役; 有限时长试验只接受 0x49 显式 START.
         // 观测流开关: 0 = 静默, 让参数协议独占 USART1.
         add(vehicle_slot, ParamKind::hot, Domain::main_yaw, true, 18, 1.0f,
             0.0f, 1.0f, "telemetry_enable", "");

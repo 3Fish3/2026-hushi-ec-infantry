@@ -26,8 +26,6 @@ constexpr std::uint16_t local_gimbal_angle_kd = 12;
 constexpr std::uint16_t local_gimbal_speed_kp = 13;
 constexpr std::uint16_t local_gimbal_speed_ki = 14;
 constexpr std::uint16_t local_gimbal_speed_kd = 15;
-constexpr std::uint16_t local_sweep_amplitude = 16;
-constexpr std::uint16_t local_sweep_frequency = 17;
 constexpr std::uint16_t local_telemetry_enable = 18;
 constexpr std::uint16_t local_gimbal_friction_torque = 19;
 constexpr std::uint16_t local_gimbal_friction_band = 20;
@@ -260,15 +258,6 @@ ParamWriteResult apply_param(ParamStore& params, InfantryApp& app, InfantryExecu
             if (cycle_ == nullptr) { return ParamWriteResult::unsupported; }
             cycle_->set_telemetry_enabled(value >= 0.5f);
             actual = cycle_->telemetry_enabled() ? 1.0f : 0.0f;
-        } else if (local == local_sweep_amplitude || local == local_sweep_frequency) {
-            // 频率响应测试的注入幅度/频率: 直接下发给编排层, 幅度为 0 即关闭.
-            if (cycle_ == nullptr) { return ParamWriteResult::unsupported; }
-            auto sweep = cycle_->sweep();
-            if (local == local_sweep_amplitude) { sweep.amplitude_rad = value; }
-            else { sweep.frequency_hz = value; }
-            sweep.enabled = sweep.amplitude_rad > 0.0f;
-            cycle_->set_sweep(sweep);
-            actual = local == local_sweep_amplitude ? sweep.amplitude_rad : sweep.frequency_hz;
         } else {
             return ParamWriteResult::unsupported;
         }

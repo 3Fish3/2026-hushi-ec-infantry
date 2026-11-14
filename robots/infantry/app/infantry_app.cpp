@@ -211,7 +211,7 @@ void InfantryApp::update(Tick now, const AppInputs& inputs) noexcept {
     link.maintenance_request = link.maintenance_request || maintenance_session_request_;
     link.maintenance_session_epoch = maintenance_session_epoch_ != 0 ? maintenance_session_epoch_
                                                                      : link.maintenance_session_epoch;
-    const auto decision = authority_.update(link);
+    const auto decision = authority_.update(link, config_.infantry_controls);
     const bool authority_changed =
         decision.source != last_source_ || !(decision.token == last_token_);
     if (authority_changed || decision.manual_stop) { clear_targets(); }

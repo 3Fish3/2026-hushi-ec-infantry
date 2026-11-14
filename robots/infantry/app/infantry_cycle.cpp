@@ -125,43 +125,6 @@ CycleOutcome InfantryCycle::control(const CycleInputs& inputs) noexcept {
     drop_stale_hold(Domain::pitch);
     const auto previous_heading = mapper_.held_angle(Domain::main_yaw);
     auto command = mapper_.step(snapshot, inputs.now, inputs.dt_s, joint_rad);
-    // 试验中途失联/停止/反馈或参考失效, 结束本次激励; 不自动换基准重新起振.
-    const auto sweep_heading = perception_.local_direction_rad();
-    const bool sweep_ready = command.intent == SourceIntent::local && !command.manual_stop &&
-        main_joint && sweep_heading && !inputs_.faults.device_fault[main_index] &&
-        !inputs_.faults.feedback_lost[main_index] && !inputs_.faults.reference_lost[main_index] &&
-        !inputs_.faults.execution_rejected[main_index];
-    if (sweep_base_valid_ && (!sweep_ready ||
-        sweep_reference_epoch_ != app_.domain_reference_epoch(Domain::main_yaw))) {
-        sweep_.enabled = false;
-        sweep_base_valid_ = false;
-        mapper_.drop_held_angle(Domain::main_yaw);
-        command.targets.domains[main_index].reset();
-    }
-    // 频率响应测试: 目标 = 首次进入时的基准航向 + A·sin(2πft).
-    // 未开始的测试允许在停止挡配置, 待明确进入运行态后首次捕获基准.
-    if (sweep_.enabled && sweep_ready) {
-        const auto heading = sweep_heading;
-        if (heading) {
-            if (!sweep_base_valid_) {
-                sweep_base_rad_ = *heading;
-                sweep_base_valid_ = true;
-                sweep_start_ = inputs.now;
-                sweep_reference_epoch_ = app_.domain_reference_epoch(Domain::main_yaw);
-                mapper_.drop_held_angle(Domain::main_yaw);
-            }
-            const float elapsed_s = static_cast<float>(inputs.now.ms - sweep_start_.ms) * 0.001f;
-            constexpr float tau = 6.28318530717958647692f;
-            const float phase = tau * sweep_.frequency_hz * elapsed_s;
-            command.targets.domains[main_index] = DomainSetpoint{
-                control::ControlMode::position,
-                sweep_base_rad_ + sweep_.amplitude_rad * std::sin(phase),
-                0, YawFrame::local_inertial};
-        }
-    } else if (sweep_base_valid_) {
-        // 关闭测试: 清基准, 下次进入重新抓取当前航向.
-        sweep_base_valid_ = false;
-    }
     // 世界稳向: 目标航向**只由摇杆决定** (mapper 在首次接管时取当前实测航向,
     // 之后按摇杆增量积分并回中保持). 这里不再把目标重读成当前实测值 ——
     // 那会让目标跟着实测跑, 稳向与摇杆控制同时失效.
@@ -239,8 +202,17 @@ CycleOutcome InfantryCycle::control(const CycleInputs& inputs) noexcept {
         // 仲裁器的停止挡约定为 down; 步兵物理中挡是停止, 下挡是小陀螺.
         // 仅转换给仲裁器的视图, 原始遥控样本仍保持真实挡位.
         if (app_.config().infantry_controls) {
+            // 激励维护组合: 左下+右下. 只在仲裁器视图中改写成外框约定的维护选择,
+            // 原始遥控样本保持真实挡位; 右中仍是人工急停.
+            const bool physical_maintenance =
+                snapshot->switch_left == drivers::Dr16Switch::down &&
+                snapshot->switch_right == drivers::Dr16Switch::down;
+            if (physical_maintenance) {
+                inputs_.link.switch_left = drivers::Dr16Switch::mid;
+                inputs_.link.switch_right = drivers::Dr16Switch::mid;
+            }
             // 左中键鼠和左上摇杆均属于本地来源, 不将键鼠误判为待机.
-            if (snapshot->switch_left == drivers::Dr16Switch::mid) {
+            else if (snapshot->switch_left == drivers::Dr16Switch::mid) {
                 inputs_.link.switch_left = drivers::Dr16Switch::up;
             }
             if (snapshot->switch_right == drivers::Dr16Switch::mid) {
@@ -262,7 +234,17 @@ CycleOutcome InfantryCycle::control(const CycleInputs& inputs) noexcept {
     // 4. 本地来源的目标经同一入口交给应用. 必须在 update 之前: 执行层读的是 update
     //    产出的执行判定, 目标晚一个周期才生效会让"已接受"与"本周期实际下发"错位.
     //    停止态/非本地来源不下发本地目标 (来源资格仍由应用仲裁判定).
-    if (command.intent == SourceIntent::local && !command.manual_stop) {
+    // 角度试验仅由显式 START 驱动, 用同一目标入口续期; 不提交 mapper 的空维护快照.
+    const auto& authority = app_.authority();
+    const auto angle_target = executor_.sweep_angle_target(inputs.now);
+    if (angle_target && authority.holds() && authority.source() == Source::maintenance &&
+        !authority.manual_stop() && !command.manual_stop) {
+        TargetSnapshot targets{};
+        targets.domains[main_index] = DomainSetpoint{control::ControlMode::position,
+            *angle_target, 0, YawFrame::local_inertial};
+        outcome_.accept_attempted = true;
+        outcome_.accept = app_.accept_targets(targets, inputs.now, Source::maintenance);
+    } else if (command.intent == SourceIntent::local && !command.manual_stop) {
         outcome_.accept_attempted = true;
         // 该参数问的是"主 yaw 是否有可用的惯性方向"; 机械驱动的 main yaw 不需要它.
         const bool inertial_available = !main_yaw_inertial_driven(app_.config()) ||
@@ -272,6 +254,12 @@ CycleOutcome InfantryCycle::control(const CycleInputs& inputs) noexcept {
 
     // 5. 应用仲裁: 来源选择/人工停止/故障影响/目标生命周期都在应用层完成.
     app_.update(inputs.now, inputs_);
+    // 右中挡是明确退出试验的操作; 失联后的停止锁存不能代替新鲜物理停止帧.
+    // 清锁存仍要求执行层确认Disabled, 此周期继续停止, 下次本地接管重新捕获航向.
+    if (app_.config().infantry_controls && snapshot && snapshot->switch_right == drivers::Dr16Switch::mid &&
+        executor_.release_sweep_after_stop(inputs.now, app_)) {
+        mapper_.drop_held_angle(Domain::main_yaw);
+    }
     return outcome_;
 }
 

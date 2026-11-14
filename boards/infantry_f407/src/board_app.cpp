@@ -358,7 +358,7 @@ void ec_app_link_bytes(std::span<const std::uint8_t> bytes) noexcept {
         }
         ++handled_this_cycle;
         if (frame->type >= static_cast<std::uint8_t>(MessageType::hello) &&
-            frame->type <= static_cast<std::uint8_t>(MessageType::permit)) {
+            frame->type <= static_cast<std::uint8_t>(MessageType::sweep)) {
             handle_request(*frame);
         } else if (frame->type == app::sweep::request_type) {
             // 只读分页, 不更新会话持权或电机命令.
@@ -483,7 +483,17 @@ extern "C" void ec_board_app_commit(std::uint32_t now_ms) {
         }
         if (dm->enabled(Tick{now_ms})) { s.flags |= app::sweep::dm_enabled; }
     }
-    sweep_capture.push(s);
+    const auto& sw = executor->sweep_status();
+    if (sw.mode == app::sweep::Mode::angle) { s.flags |= app::sweep::sweep_angle; }
+    if (sw.phase == app::sweep::Phase::running) { s.flags |= app::sweep::sweep_running; }
+    if (sw.phase == app::sweep::Phase::complete || sw.phase == app::sweep::Phase::aborted) {
+        s.flags |= app::sweep::sweep_inhibited;
+    }
+    s.sweep_run_id = sw.run_id; s.sweep_hz = sw.frequency_hz;
+    s.requested_excitation_nm = sw.requested_nm; s.applied_excitation_nm = sw.applied_nm;
+    // M2 用250 Hz记录1kHz控制环; 序号表示记录数, 时戳保留真实控制提交时刻.
+    static unsigned sample_divider{};
+    if (++sample_divider % 4u == 0) { sweep_capture.push(s); }
 }
 
 } // 命名空间 ec::infantry

@@ -1245,6 +1245,30 @@ void reply_mux_contracts() {
     CHECK(rig.app.stats().cycles == cycles+100 && mux.diagnostics()[9] == 1);
 }
 
+void sweep_message_contracts() {
+    Rig rig;
+    static_cast<void>(rig.hello());
+    const auto send = [&](std::uint8_t op, std::uint32_t seq) {
+        std::array<std::uint8_t, 32> payload{}; PayloadWriter w{payload};
+        w.u8(protocol_version); w.u8(static_cast<std::uint8_t>(MessageType::sweep));
+        w.u32(rig.session_id()); w.u32(seq); w.u8(op); w.u8(0); w.u8(3); w.f32(0);
+        return rig.round_trip({payload.data(),w.size()}, static_cast<std::uint8_t>(MessageType::sweep));
+    };
+    auto response = send(0,rig.next_seq());
+    CHECK(response.type == static_cast<std::uint8_t>(MessageType::ack));
+    CHECK(response.payload[10] == static_cast<std::uint8_t>(ResultCode::not_permitted));
+    static_cast<void>(rig.authorize(true,Source::maintenance,rig.next_seq()));
+    rig.cycle();
+    const auto cancel_seq = rig.next_seq();
+    response = send(0,cancel_seq);
+    CHECK(response.payload[10] == static_cast<std::uint8_t>(ResultCode::accepted));
+    // 只读流推进后重放同一变更仍须回放原响应, 不执行第二次取消.
+    static_cast<void>(rig.status(rig.next_seq()));
+    response = send(0,cancel_seq);
+    CHECK(response.payload[10] == static_cast<std::uint8_t>(ResultCode::accepted));
+    CHECK(rig.exec.sweep_status().phase == sweep::Phase::idle);
+}
+
 void diagnostics_contracts() {
     Rig rig;
     static_cast<void>(rig.hello());
@@ -1300,6 +1324,7 @@ int main(int argc, char** argv) {
     mutation_stream_and_frames_contracts();
     reply_mux_contracts();
     diagnostics_contracts();
+    sweep_message_contracts();
     if (failures != 0) {
         std::cout << failures << " contract(s) failed\n";
         return 1;

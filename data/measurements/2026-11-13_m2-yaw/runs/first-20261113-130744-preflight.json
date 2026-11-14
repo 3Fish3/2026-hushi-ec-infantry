@@ -1,0 +1,279 @@
+{
+  "hello": {
+    "session": 3,
+    "config_epoch": 1,
+    "reference_epoch": 0,
+    "clock_ms": 1222321,
+    "boot_id": 0,
+    "client_nonce": 287454020,
+    "role": 0,
+    "config_complete": false,
+    "startable": true,
+    "boot_identity_available": false,
+    "identity": "infantry_app",
+    "config_kind": 2
+  },
+  "state": {
+    "session": 3,
+    "sequence": 1,
+    "page": 1,
+    "config_epoch": 1,
+    "reference_epoch": 0,
+    "clock_ms": 1222324,
+    "source": "none",
+    "authority": false,
+    "manual_stop": false,
+    "launch_allowed": false,
+    "domains": [
+      {
+        "domain": "chassis_lf",
+        "validity": "valid",
+        "mode": "none",
+        "execute": false,
+        "reason": "standby",
+        "target": 0.0,
+        "measurement": 0.0,
+        "age_ms": null,
+        "velocity_age_ms": 1,
+        "requested_frame": null,
+        "adopted_frame": "joint",
+        "measured_frame": "joint",
+        "measurement_valid": true
+      },
+      {
+        "domain": "chassis_rf",
+        "validity": "valid",
+        "mode": "none",
+        "execute": false,
+        "reason": "standby",
+        "target": 0.0,
+        "measurement": 0.0,
+        "age_ms": null,
+        "velocity_age_ms": 1,
+        "requested_frame": null,
+        "adopted_frame": "joint",
+        "measured_frame": "joint",
+        "measurement_valid": true
+      },
+      {
+        "domain": "chassis_lb",
+        "validity": "valid",
+        "mode": "none",
+        "execute": false,
+        "reason": "standby",
+        "target": 0.0,
+        "measurement": 0.0,
+        "age_ms": null,
+        "velocity_age_ms": 2,
+        "requested_frame": null,
+        "adopted_frame": "joint",
+        "measured_frame": "joint",
+        "measurement_valid": true
+      },
+      {
+        "domain": "chassis_rb",
+        "validity": "valid",
+        "mode": "none",
+        "execute": false,
+        "reason": "standby",
+        "target": 0.0,
+        "measurement": 0.0,
+        "age_ms": null,
+        "velocity_age_ms": 1,
+        "requested_frame": null,
+        "adopted_frame": "joint",
+        "measured_frame": "joint",
+        "measurement_valid": true
+      },
+      {
+        "domain": "main_yaw",
+        "validity": "valid",
+        "mode": "none",
+        "execute": false,
+        "reason": "standby",
+        "target": 0.0,
+        "measurement": 0.007326007355004549,
+        "age_ms": 2,
+        "velocity_age_ms": 2,
+        "requested_frame": null,
+        "adopted_frame": "joint",
+        "measured_frame": "joint",
+        "measurement_valid": true
+      },
+      {
+        "domain": "fire_yaw",
+        "validity": "unavailable",
+        "mode": "none",
+        "execute": false,
+        "reason": "not_configured",
+        "target": 0.0,
+        "measurement": 0.0,
+        "age_ms": null,
+        "velocity_age_ms": null,
+        "requested_frame": null,
+        "adopted_frame": "joint",
+        "measured_frame": "joint",
+        "measurement_valid": false
+      },
+      {
+        "domain": "pitch",
+        "validity": "incomplete",
+        "mode": "none",
+        "execute": false,
+        "reason": "incomplete_config",
+        "target": 0.0,
+        "measurement": 0.0,
+        "age_ms": null,
+        "velocity_age_ms": null,
+        "requested_frame": null,
+        "adopted_frame": "joint",
+        "measured_frame": "joint",
+        "measurement_valid": false
+      },
+      {
+        "domain": "friction_left",
+        "validity": "unavailable",
+        "mode": "none",
+        "execute": false,
+        "reason": "not_configured",
+        "target": 0.0,
+        "measurement": 0.0,
+        "age_ms": null,
+        "velocity_age_ms": null,
+        "requested_frame": null,
+        "adopted_frame": "joint",
+        "measured_frame": "joint",
+        "measurement_valid": false
+      },
+      {
+        "domain": "friction_right",
+        "validity": "unavailable",
+        "mode": "none",
+        "execute": false,
+        "reason": "not_configured",
+        "target": 0.0,
+        "measurement": 0.0,
+        "age_ms": null,
+        "velocity_age_ms": null,
+        "requested_frame": null,
+        "adopted_frame": "joint",
+        "measured_frame": "joint",
+        "measurement_valid": false
+      },
+      {
+        "domain": "trigger",
+        "validity": "unavailable",
+        "mode": "none",
+        "execute": false,
+        "reason": "not_configured",
+        "target": 0.0,
+        "measurement": 0.0,
+        "age_ms": null,
+        "velocity_age_ms": null,
+        "requested_frame": null,
+        "adopted_frame": "joint",
+        "measured_frame": "joint",
+        "measurement_valid": false
+      }
+    ]
+  },
+  "fast": {
+    "session": 3,
+    "sequence": 2,
+    "page": 0,
+    "config_epoch": 1,
+    "reference_epoch": 0,
+    "clock_ms": 1222330,
+    "control_ms": 1222329,
+    "evaluated_us": 1222328501,
+    "boot_id": 0,
+    "source": "none",
+    "authority": false,
+    "manual_stop": false,
+    "launch_allowed": false,
+    "locally_ready": true,
+    "boot_identity_available": false,
+    "main_yaw_degraded": false,
+    "config_kind": 2,
+    "joints": {
+      "main_yaw": {
+        "angle_rad": -1.8892576694488525,
+        "rate_rad_s": 0.007326007355004549,
+        "position_valid": true,
+        "velocity_valid": true,
+        "position_age_ms": 8,
+        "velocity_age_ms": 8
+      },
+      "fire_yaw": {
+        "angle_rad": 0.0,
+        "rate_rad_s": 0.0,
+        "position_valid": false,
+        "velocity_valid": false,
+        "position_age_ms": null,
+        "velocity_age_ms": null
+      },
+      "pitch": {
+        "angle_rad": 0.0,
+        "rate_rad_s": 0.0,
+        "position_valid": false,
+        "velocity_valid": false,
+        "position_age_ms": null,
+        "velocity_age_ms": null
+      }
+    },
+    "main_platform": {
+      "validity": "valid",
+      "reason": "none",
+      "local_reference": true,
+      "odom_aligned": false,
+      "local_epoch": 1,
+      "alignment_epoch": 0,
+      "orientation_V_to_local_wxyz": [
+        0.9553772807121277,
+        0.21548447012901306,
+        0.021527409553527832,
+        0.20089152455329895
+      ],
+      "rate_V_rad_s": [
+        -0.010434667579829693,
+        0.004559595137834549,
+        -0.0075373221188783646
+      ],
+      "heading_rad": -1.145240306854248,
+      "odom_offset_rad": 0.0,
+      "heading_gain": 1.0,
+      "gyro_sample_us": 1222328425,
+      "ages_us": [
+        76,
+        null,
+        null
+      ],
+      "time_error_us": [
+        512,
+        null,
+        null
+      ]
+    },
+    "wheel_odom": {
+      "validity": "valid",
+      "rank_ok": true,
+      "pose_valid": true,
+      "continuous": true,
+      "twist": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "pose_xy_yaw": [
+        0.0003778468817472458,
+        -0.0006177382892929018,
+        -0.005441434681415558
+      ],
+      "skew_us": 490,
+      "residual_rad_s": 0.0,
+      "gaps": 0,
+      "age_ms": 1
+    },
+    "twist_scale": 1.0
+  }
+}

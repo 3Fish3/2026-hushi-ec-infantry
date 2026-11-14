@@ -8,6 +8,7 @@
 #include "ec/transport/can.hpp"
 #include "infantry_app.hpp"
 #include "infantry_config.hpp"
+#include "infantry_sweep_excitation.hpp"
 #include "infantry_params.hpp"
 #include "raw_record.hpp"
 #include <array>
@@ -132,6 +133,16 @@ public:
     // 世界稳向级联增益在线更新: 只改增益, 不重建对象也不清积分.
     [[nodiscard]] bool set_gimbal_pids(const control::PidConfig& angle,
         const control::PidConfig& speed) noexcept;
+    // 有限时长力矩/角度试验: 只有全部保护条件成立才接受, 两种模式互斥.
+    [[nodiscard]] sweep::Guard sweep_guard(const InfantryApp& app, Tick now) const noexcept;
+    [[nodiscard]] bool start_sweep(const sweep::Plan& plan, Tick now, const InfantryApp& app) noexcept;
+    void cancel_sweep() noexcept { sweep_engine_.cancel(); }
+    [[nodiscard]] std::optional<float> sweep_angle_target(Tick now) const noexcept {
+        return sweep_engine_.angle_target(clock_ ? clock_().us : now.ms * 1000u);
+    }
+    // 物理停止态下确认设备已失能后, 退出试验锁存; 不改变PID配置或直接使能.
+    [[nodiscard]] bool release_sweep_after_stop(Tick now, const InfantryApp& app) noexcept;
+    [[nodiscard]] const sweep::Status& sweep_status() const noexcept { return sweep_engine_.status(); }
     [[nodiscard]] control::PidConfig gimbal_angle_pid_config() const noexcept {
         return dm_yaw_angle_pid_ ? dm_yaw_angle_pid_->config() : control::PidConfig{};
     }
@@ -208,6 +219,9 @@ private:
     GroupClock pitch_clock_{};
     GroupClock direction_clock_{};
     MainYawControlStats main_yaw_stats_{};
+    sweep::Engine sweep_engine_{};
+    // 仅在 CAN 队列确实接纳后才记为已注入; 不是实测力矩.
+    float pending_sweep_nm_{};
     bool main_inertial_active_{};
     ExecutorGroupStats pitch_stats_{};
     std::optional<control::Pid> dm_yaw_angle_pid_{};

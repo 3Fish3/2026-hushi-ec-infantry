@@ -1,5 +1,7 @@
 # 正式 APP 高频只读采集（0x37/0xB7）
 
+> 版本说明：以下为 M1（schema1、56字节、1kHz）的历史接口及验收说明。当前 M2 工作区/固件已升级为 schema2、72字节、250Hz、每页3条；旧schema1客户端不能直接连接新固件。只读客户端仍不取权或启动运动；动力试验是另一个显式 `--arm` 工具。当前接口与操作见 [M2 多频力矩 Sweep](M2多频力矩Sweep.md)。
+
 ## 范围
 
 基于 `infantry_sweep_capture_source_v1.zip` 的 56 字节分页版本接入，ZIP SHA256 为 `9cf22bad97e8700a2918170ce63eb809e51dbf637896564141d70f328740b2f6`。不采用包中的 `patches/apply_patch.py`、`tools/infantry_sweep_receive.py`、48 字节流式协议或测试 stub。
