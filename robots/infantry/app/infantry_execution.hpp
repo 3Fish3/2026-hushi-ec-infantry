@@ -149,7 +149,7 @@ public:
     [[nodiscard]] control::PidConfig gimbal_speed_pid_config() const noexcept {
         return dm_yaw_speed_pid_ ? dm_yaw_speed_pid_->config() : control::PidConfig{};
     }
-    // 启动补偿只作用于世界稳向的纯力矩路径; 叠加后仍用速度环原输出限幅.
+    // 摩擦补偿只作用于世界稳向的纯力矩路径; 机械速度定方向, 仍受原输出限幅约束.
     [[nodiscard]] bool set_gimbal_friction(float torque_nm, float speed_rad_s) noexcept;
     [[nodiscard]] float gimbal_friction_torque_nm() const noexcept {
         return config_.single_gimbal_imu ? config_.single_gimbal_imu->friction_torque_nm : 0.0f;

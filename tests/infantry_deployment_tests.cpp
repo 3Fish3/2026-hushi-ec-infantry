@@ -36,7 +36,7 @@ void deployment_is_startable() {
     assert(config.single_gimbal_imu->barrel_axis[1] == -1.0f);
     // 启动补偿默认关闭; 平滑带只是待整定设置, 不预填经验摩擦幅值.
     assert(config.single_gimbal_imu->friction_torque_nm == 0.0f);
-    assert(config.single_gimbal_imu->friction_band_nm == 0.05f);
+    assert(config.single_gimbal_imu->friction_speed_rad_s == 0.05f);
     // report.complete 要求全部 10 个域齐备; 步兵只装 6 个域, 故 complete 必为 false.
     // 可运行判据是 startable, 而不是"哨兵全装"意义上的 complete.
     assert(!report.complete);

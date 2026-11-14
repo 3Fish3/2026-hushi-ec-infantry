@@ -13,6 +13,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <numbers>
+#include <string_view>
 #include <utility>
 
 namespace {
@@ -431,31 +432,38 @@ void friction_parameters_apply() {
     Rig rig;
     ParamStore params{rig.config};
     const auto amplitude = param_id(domain_count, 19);
-    const auto band = param_id(domain_count, 20);
+    const auto speed = param_id(domain_count, 20);
     CHECK(params.find(amplitude));
-    CHECK(params.find(band));
+    CHECK(params.find(speed));
+    CHECK(std::string_view{params.find(speed)->name} == "gimbal_friction_speed_rad_s");
+    CHECK(std::string_view{params.find(speed)->unit} == "rad/s");
+    CHECK(params.find(speed)->max_value == rig.config.dm[0].limits->velocity_max_rad_s);
     CHECK(params.entry(amplitude)->value == 0.0f);
     CHECK(param_has_apply_path(rig.app, amplitude));
-    CHECK(param_has_apply_path(rig.app, band));
+    CHECK(param_has_apply_path(rig.app, speed));
     const auto write = [&](std::uint16_t id, float value) {
         return apply_param(params, rig.app, &rig.executor, &rig.perception, &rig.cycle,
             id, value, true);
     };
     CHECK(write(amplitude, 0.15f) == ParamWriteResult::accepted);
-    CHECK(write(band, 0.1f) == ParamWriteResult::accepted);
+    // 速度值可以大于力矩量程, 但不能超出速度量程, 不能混用量纲限幅.
+    CHECK(write(speed, rig.config.dm[0].limits->torque_max_nm + 1.0f) == ParamWriteResult::accepted);
+    CHECK(write(speed, params.find(speed)->max_value + 1.0f) == ParamWriteResult::invalid_value);
+    CHECK(write(speed, std::numeric_limits<float>::quiet_NaN()) == ParamWriteResult::invalid_value);
+    CHECK(write(speed, 0.1f) == ParamWriteResult::accepted);
     CHECK(params.entry(amplitude)->value == 0.15f);
-    CHECK(params.entry(band)->value == 0.1f);
+    CHECK(params.entry(speed)->value == 0.1f);
     CHECK(write(amplitude, -0.1f) == ParamWriteResult::invalid_value);
-    CHECK(write(band, 0.0f) == ParamWriteResult::invalid_value);
+    CHECK(write(speed, 0.0f) == ParamWriteResult::invalid_value);
     CHECK(params.entry(amplitude)->value == 0.15f);
-    CHECK(params.entry(band)->value == 0.1f);
+    CHECK(params.entry(speed)->value == 0.1f);
     CHECK(rig.executor.gimbal_friction_torque_nm() == 0.15f);
-    CHECK(rig.executor.gimbal_friction_band_nm() == 0.1f);
+    CHECK(rig.executor.gimbal_friction_speed_rad_s() == 0.1f);
     CHECK(write(amplitude, std::numeric_limits<float>::quiet_NaN()) == ParamWriteResult::invalid_value);
     CHECK(write(amplitude, params.find(amplitude)->max_value + 1.0f) == ParamWriteResult::invalid_value);
     CHECK(!rig.executor.set_gimbal_friction(0.2f, 0.0f));
     CHECK(rig.executor.gimbal_friction_torque_nm() == 0.15f);
-    CHECK(rig.executor.gimbal_friction_band_nm() == 0.1f);
+    CHECK(rig.executor.gimbal_friction_speed_rad_s() == 0.1f);
     CHECK(apply_param(params, rig.app, nullptr, &rig.perception, &rig.cycle,
         amplitude, 0.2f, true) == ParamWriteResult::unsupported);
     CHECK(params.entry(amplitude)->value == 0.15f);
@@ -469,17 +477,20 @@ void invalid_friction_config_is_rejected() {
     auto gimbal = *config.single_gimbal_imu;
     const auto limits = *config.dm[0].limits;
     CHECK(valid_single_gimbal_imu(gimbal, limits));
-    for (float invalid : {-0.1f, limits.torque_max_nm + 1.0f,
-        std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity()}) {
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    const float inf = std::numeric_limits<float>::infinity();
+    // 力矩量纲字段按力矩上限检查.
+    for (float invalid : {-0.1f, limits.torque_max_nm + 1.0f, nan, inf}) {
         auto bad = gimbal;
         bad.friction_torque_nm = invalid;
         CHECK(!valid_single_gimbal_imu(bad, limits));
-        bad = gimbal;
-        bad.friction_band_nm = invalid;
+    }
+    // 速度门限按速度量程检查: 力矩上限不是它的合法上界.
+    for (float invalid : {-0.1f, 0.0f, limits.velocity_max_rad_s + 1.0f, nan, inf}) {
+        auto bad = gimbal;
+        bad.friction_speed_rad_s = invalid;
         CHECK(!valid_single_gimbal_imu(bad, limits));
     }
-    gimbal.friction_band_nm = 0.0f;
-    CHECK(!valid_single_gimbal_imu(gimbal, limits));
 }
 
 // 使用真实维护目标链启动有限时长角度试验, 不再依赖已退役的无限正弦配置.
@@ -500,7 +511,7 @@ void start_angle_trial(Rig& rig, float amplitude = 0.2f, float hz = 0.5f) {
 }
 
 // 两个不推进负载的真实执行链接受相同输入, 唯一差别为在线补偿参数.
-// 逐周期核对最终 MIT 帧、正负号、过零平滑、原限幅和关闭补偿后的输出一致性.
+// 逐周期核对最终 MIT 帧、方向取实测速度、静止带内按需求起动、原限幅和关闭补偿后的一致性.
 void friction_assist_preserves_torque_contract() {
     using namespace ec::infantry::app;
     for (int direction : {-1, 1}) {
@@ -537,7 +548,15 @@ void friction_assist_preserves_torque_contract() {
                 if (!actual.torque_submitted) { continue; }
                 const float demand = plain.torque_command_nm * static_cast<float>(direction);
                 const float magnitude = i < 2000 ? 0.15f : 0.0f;
-                const float addition = magnitude * std::clamp(demand / 0.05f, -1.0f, 1.0f);
+                // 不推进负载, DM速度只有零点量化偏移; 补偿应只由角度误差起动项给出.
+                const auto& state = assisted.app.snapshot();
+                const auto& execution = state.executions[index(Domain::main_yaw)];
+                CHECK(execution.adopted_target);
+                const float error = ec::control::shortest_arc_error(*execution.adopted_target,
+                    state.main_yaw.continuous_heading);
+                const float starting = std::clamp(error * gimbal.angle_pid.kp /
+                    gimbal.friction_speed_rad_s, -1.0f, 1.0f);
+                const float addition = magnitude * starting;
                 const float expected = std::clamp(demand + addition,
                     gimbal.speed_pid.output_min, gimbal.speed_pid.output_max) * static_cast<float>(direction);
                 CHECK(std::fabs(actual.torque_command_nm - expected) < 1e-6f);
@@ -562,6 +581,126 @@ void friction_assist_preserves_torque_contract() {
             }
             CHECK(saw_positive && saw_negative && saw_zero && saw_smooth && saw_disabled);
             CHECK(saw_saturation == limited);
+        }
+    }
+}
+
+// 回归: 运动时补偿沿DM机械相对速度, 不依赖世界速率或速度环力矩需求.
+// 注入相互独立的世界/机械速度, 覆盖底盘转动稳向、整体同转与两种电机符号.
+void friction_follows_measured_velocity_not_demand() {
+    using namespace ec::infantry::app;
+    for (int direction : {-1, 1}) {
+        for (float motor_rate : {-0.3f, -0.04f, 0.0f, 0.04f, 0.3f}) {
+            for (float world_rate : {-0.2f, 0.0f, 0.2f}) {
+                auto config = test_infantry_config();
+                auto& gimbal = *config.single_gimbal_imu;
+                gimbal.torque_direction = direction;
+                gimbal.friction_torque_nm = 0.3f;
+                // 隔离反馈源: PID输出为零, 仍须补偿机械相对运动, 不能追随世界速率.
+                gimbal.speed_pid.kp = 0.0f;
+                gimbal.speed_pid.ki = 0.0f;
+                gimbal.speed_pid.kd = 0.0f;
+                gimbal.angle_pid.kp = 0.0f;
+                Rig rig{config};
+                start_angle_trial(rig);
+                rig.plant.dm.velocity_rad_s = motor_rate;
+                rig.world_gyro_z = world_rate;
+                int commands = 0;
+                for (int i = 0; i < 50; ++i) {
+                    rig.plant.dm.position_rad += motor_rate * rig.dt_s;
+                    rig.feed(FrameSpec{{0,0,0,0},0,Dr16Switch::down,Dr16Switch::down});
+                    rig.cycle_once();
+                    const auto& actual = rig.executor.main_yaw_stats();
+                    if (!actual.torque_submitted) { continue; }
+                    if (std::fabs(motor_rate) == 0.04f) {
+                        // 速度带内只能得到部分补偿, 不能硬切到满幅或完全消失.
+                        CHECK(actual.torque_command_nm * motor_rate > 0.0f);
+                        CHECK(std::fabs(actual.torque_command_nm) > 0.01f);
+                        CHECK(std::fabs(actual.torque_command_nm) < 0.29f);
+                    } else {
+                        const float expected = motor_rate == 0 ? 0.0f : std::copysign(0.3f, motor_rate);
+                        CHECK(std::fabs(actual.torque_command_nm - expected) < 1e-6f);
+                    }
+                    ++commands;
+                }
+                CHECK(commands > 40);
+            }
+        }
+    }
+}
+
+// 静止时需求力矩为零也必须能按角度误差起动; 到达目标且无相对运动时补偿为零.
+void friction_starts_from_angle_error() {
+    using namespace ec::infantry::app;
+    for (int direction : {-1, 1}) {
+        auto config = test_infantry_config();
+        auto& gimbal = *config.single_gimbal_imu;
+        gimbal.torque_direction = direction;
+        gimbal.friction_torque_nm = 0.3f;
+        gimbal.speed_pid.kp = 0.0f;
+        gimbal.speed_pid.ki = 0.0f;
+        gimbal.speed_pid.kd = 0.0f;
+        Rig rig{config};
+        start_angle_trial(rig, 0.05f, 1.0f);
+        bool positive = false, negative = false, zero = false, smooth = false;
+        for (int i = 0; i < 1900; ++i) {
+            if (i == 700) {
+                auto angle = rig.executor.gimbal_angle_pid_config();
+                angle.kp = 2.0f;
+                CHECK(rig.executor.set_gimbal_pids(angle, rig.executor.gimbal_speed_pid_config()));
+            }
+            rig.feed(FrameSpec{{0,0,0,0},0,Dr16Switch::down,Dr16Switch::down});
+            rig.cycle_once();
+            const auto& actual = rig.executor.main_yaw_stats();
+            const auto& execution = rig.app.snapshot().executions[index(Domain::main_yaw)];
+            if (!actual.torque_submitted || !execution.adopted_target) { continue; }
+            const float error = ec::control::shortest_arc_error(*execution.adopted_target,
+                rig.app.snapshot().main_yaw.continuous_heading);
+            const float intent = std::clamp(error * rig.executor.gimbal_angle_pid_config().kp /
+                gimbal.friction_speed_rad_s, -1.0f, 1.0f);
+            const float expected = 0.3f * intent * static_cast<float>(direction);
+            CHECK(std::fabs(actual.torque_command_nm - expected) < 1e-6f);
+            positive |= intent > 0.9f;
+            negative |= intent < -0.9f;
+            zero |= std::fabs(expected) < 1e-6f;
+            smooth |= std::fabs(intent) > 0.1f && std::fabs(intent) < 0.9f;
+        }
+        CHECK(positive && negative && zero && smooth);
+    }
+}
+
+// 机械仍在滑动而PID开始制动时, 补偿分量不能随制动力矩反向跳转.
+void friction_keeps_motion_direction_during_braking() {
+    using namespace ec::infantry::app;
+    for (int direction : {-1, 1}) {
+        for (float motor_rate : {-0.3f, 0.3f}) {
+            auto config = test_infantry_config();
+            config.single_gimbal_imu->torque_direction = direction;
+            config.single_gimbal_imu->angle_pid.kp = 0.0f;
+            Rig plain{config};
+            config.single_gimbal_imu->friction_torque_nm = 0.3f;
+            Rig assisted{config};
+            start_angle_trial(plain);
+            start_angle_trial(assisted);
+            int commands = 0;
+            for (int i = 0; i < 50; ++i) {
+                for (auto* rig : {&plain, &assisted}) {
+                    rig->world_gyro_z = std::copysign(0.2f, motor_rate) * static_cast<float>(direction);
+                    rig->plant.dm.velocity_rad_s = motor_rate;
+                    rig->plant.dm.position_rad += motor_rate * rig->dt_s;
+                    rig->feed(FrameSpec{{0,0,0,0},0,Dr16Switch::down,Dr16Switch::down});
+                    rig->cycle_once();
+                }
+                const auto& before = plain.executor.main_yaw_stats();
+                const auto& after = assisted.executor.main_yaw_stats();
+                CHECK(before.torque_submitted == after.torque_submitted);
+                if (!before.torque_submitted) { continue; }
+                CHECK(before.torque_command_nm * motor_rate < 0.0f);
+                CHECK(std::fabs(after.torque_command_nm - before.torque_command_nm -
+                    std::copysign(0.3f, motor_rate)) < 1e-6f);
+                ++commands;
+            }
+            CHECK(commands > 40);
         }
     }
 }
@@ -879,6 +1018,9 @@ int main() {
     m2_real_execution_stops_and_rearms();
     maintenance_target_sine_runs();
     friction_parameters_apply();
+    friction_follows_measured_velocity_not_demand();
+    friction_starts_from_angle_error();
+    friction_keeps_motion_direction_during_braking();
     invalid_friction_config_is_rejected();
     friction_assist_preserves_torque_contract();
     parameter_writes_do_not_interrupt_sweep();

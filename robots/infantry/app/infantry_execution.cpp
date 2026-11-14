@@ -789,18 +789,22 @@ void InfantryExecutor::step_pitch(Tick now, const InfantryApp& app, float dt_s, 
             main_yaw_stats_.pid_trace_valid = true;
         }
         const auto& gimbal = *config_.single_gimbal_imu;
-        // 库仑摩擦补偿: 摩擦反抗的是**实际运动**, 不是"想加速的意图". 方向取实测航向速率;
-        // 只有静止带内才退回按力矩需求起动, 并随速度线性交接到速度方向.
-        // 不用 sign(力矩需求): 需求每周期过零会让补偿变成高频继电器 (实测 1.8-2.6Hz 极限环).
+        // 补偿沿机械相对运动方向抵消摩擦; 小陀螺稳向时世界航向速率不能替代它.
+        // 静止时按角度误差P项起动, 不随速度环制动力矩或测量侧D项翻转.
         float assisted = *torque;
         if (gimbal.friction_torque_nm > 0.0f) {
-            const float measured_rate = platform.value.heading_rate;
-            const float moving = std::clamp(measured_rate / gimbal.friction_speed_rad_s,
-                -1.0f, 1.0f);
-            const float intent = std::clamp(*torque / gimbal.friction_band_nm, -1.0f, 1.0f);
-            // |moving| -> 1 时完全取速度方向; 越接近静止越依赖需求方向, 避免静止时助力消失.
-            const float direction = moving + (1.0f - std::fabs(moving)) * intent;
-            assisted += gimbal.friction_torque_nm * std::clamp(direction, -1.0f, 1.0f);
+            const float motor_rate = device.state().feedback.value.velocity_rad_s;
+            // 12bit速度映射在零点有半LSB偏移, 用一个协议量化步长抑制虚假运动方向.
+            const float quantum = 2.0f * device.limits().velocity_max_rad_s / 4095.0f;
+            const float moving_motor = std::copysign(std::clamp(
+                (std::fabs(motor_rate) - quantum) / gimbal.friction_speed_rad_s,
+                0.0f, 1.0f), motor_rate);
+            const float moving = moving_motor * static_cast<float>(gimbal.torque_direction);
+            const float starting = std::clamp(error * dm_yaw_angle_pid_->config().kp /
+                gimbal.friction_speed_rad_s, -1.0f, 1.0f);
+            // 在同一世界力矩坐标中连续交接; |moving|=1后补偿只由机械运动方向决定.
+            const float blend = moving + (1.0f - std::fabs(moving)) * starting;
+            assisted += gimbal.friction_torque_nm * blend;
         }
         const auto& limits = dm_yaw_speed_pid_->config();
         assisted = std::clamp(assisted, limits.output_min, limits.output_max);

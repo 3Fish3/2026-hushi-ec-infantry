@@ -28,7 +28,7 @@ constexpr std::uint16_t local_gimbal_speed_ki = 14;
 constexpr std::uint16_t local_gimbal_speed_kd = 15;
 constexpr std::uint16_t local_telemetry_enable = 18;
 constexpr std::uint16_t local_gimbal_friction_torque = 19;
-constexpr std::uint16_t local_gimbal_friction_band = 20;
+constexpr std::uint16_t local_gimbal_friction_speed = 20;
 
 // 从一份 PidConfig 里按局部序号取/放增益, 避免三处重复的 if 链.
 [[nodiscard]] float gain_of(const control::PidConfig& pid, std::uint16_t local) noexcept {
@@ -92,7 +92,7 @@ void set_gain(control::PidConfig& pid, std::uint16_t local, float value) noexcep
     }
     if (slot == domain_count) {
         return local == local_vehicle_yaw_alignment || local == local_vehicle_target_ttl ||
-            (local >= local_gimbal_angle_kp && local <= local_gimbal_friction_band);
+            (local >= local_gimbal_angle_kp && local <= local_gimbal_friction_speed);
     }
     return false;
 }
@@ -244,11 +244,11 @@ ParamWriteResult apply_param(ParamStore& params, InfantryApp& app, InfantryExecu
             case local_gimbal_speed_ki: actual = live_speed.ki; break;
             default: actual = live_speed.kd; break;
             }
-        } else if (local == local_gimbal_friction_torque || local == local_gimbal_friction_band) {
+        } else if (local == local_gimbal_friction_torque || local == local_gimbal_friction_speed) {
             if (executor == nullptr) { return ParamWriteResult::unsupported; }
             const float torque = local == local_gimbal_friction_torque ? value :
                 executor->gimbal_friction_torque_nm();
-            const float speed = local == local_gimbal_friction_band ? value :
+            const float speed = local == local_gimbal_friction_speed ? value :
                 executor->gimbal_friction_speed_rad_s();
             if (!executor->set_gimbal_friction(torque, speed)) { return ParamWriteResult::invalid_value; }
             actual = local == local_gimbal_friction_torque ? executor->gimbal_friction_torque_nm() :
