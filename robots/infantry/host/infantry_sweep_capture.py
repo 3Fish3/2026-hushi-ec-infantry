@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""步兵 APP USART1 只读 1 kHz 采样采集 (C 板 UART2, 921600 8N1).
+"""步兵 APP USART1 只读 250 Hz 采样采集 (C 板 UART2, 921600 8N1).
 
 本工具绝不 hello/authorize、不设置目标、不写参数、不使能电机, 也不启动 Sweep.
 它只通过 infantry_client 既有的 UartFrame/CRC16 分帧请求环形缓存中的样本.
@@ -37,7 +37,7 @@ FLOAT_FIELDS = FIELDS[3:13] + FIELDS[17:20]
 # 与 infantry_sweep_capture.hpp 的 Flag 位一一对应; 有效性由 flags 表达, 不用 0/NaN 代替.
 FLAG_NAMES = ('target_valid', 'heading_valid', 'dm_feedback_fresh', 'dm_enabled',
               'torque_submitted', 'pid_trace_valid', 'executing',
-              'sweep_running', 'sweep_inhibited')
+              'sweep_running', 'sweep_inhibited', 'sweep_angle')
 VALIDITY_FIELDS = {
     'target_heading_rad': 1 << 0,
     'heading_rad': 1 << 1, 'heading_rate_rad_s': 1 << 1,
@@ -51,10 +51,10 @@ assert HEADER.size + 3 * RECORD.size == 232
 
 INFLIGHT = 4      # 固件固定 4 槽在途 FIFO: 同时未应答的请求上限
 PAGE = 3          # 每页最多 3 条记录 (232 B 上限)
-PREFILL_S = 0.016  # 16 ms ≈ 16 条 @1 kHz, 远小于 256 条 (256 ms) 环形深度
+PREFILL_S = 0.016  # 16 ms ≈ 4 条 @250 Hz, 远小于 128 条 (512 ms) 环形深度
 DRAIN_SETTLE_S = 0.1  # 结束后有界排空在途应答, 避免遗留 B7 被后续 HELLO 交换误读
-RETRY_AFTER_S = 0.05  # 4 槽 FIFO 不覆盖旧应答: 丢应答必须短于 256 ms 环形深度就重发
-TAIL_PROBE_S = 0.004  # 尾部空页探测限速: 4 ms ≈ 4 条, 远小于 256 条环形深度
+RETRY_AFTER_S = 0.05  # 4 槽 FIFO 不覆盖旧应答: 丢应答必须短于 512 ms 环形深度就重发
+TAIL_PROBE_S = 0.004  # 尾部空页探测限速: 4 ms ≈ 1 条, 远小于 128 条环形深度
 
 
 class CaptureError(RuntimeError):

@@ -4,9 +4,11 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <optional>
 
 namespace ec::infantry::app::sweep {
 enum class Phase : std::uint8_t { idle=0, running=1, complete=2, aborted=3, arming=4 };
+enum class Mode : std::uint8_t { torque=0, angle=1 };
 enum class Stop : std::uint8_t {
     none=0, cancelled, authority, feedback, reference, speed, deviation, clock, can_error, invalid_plan
 };
@@ -14,6 +16,8 @@ struct Plan {
     std::array<float,6> hz{};
     std::uint8_t count{}, cycles{5}; // 每频首尾各一个周期淡入/淡出
     float amplitude_nm{};           // 电机侧力矩幅值, 不混入世界系方向
+    Mode mode{Mode::torque};
+    float amplitude_rad{};          // 世界航向目标幅值; 与力矩注入互斥
 };
 struct Guard {
     bool maintenance{}, running{}, imu_valid{}, dm_enabled{}, dm_fresh{};
@@ -23,6 +27,7 @@ struct Guard {
 };
 struct Status {
     Phase phase{Phase::idle};
+    Mode mode{Mode::torque};
     Stop stop{Stop::none};
     std::uint8_t frequency_index{}, frequency_count{};
     float frequency_hz{}, requested_nm{}, applied_nm{};
@@ -31,13 +36,18 @@ struct Status {
 class Engine {
 public:
     // 软件试验边界, 不是已认证的硬件安全能力.
-    static constexpr float amplitude_limit_nm=0.03f, rate_limit_rad_s=1.5f,
-        heading_deviation_limit_rad=0.35f;
+    static constexpr float amplitude_limit_nm=0.03f, amplitude_limit_rad=0.2f,
+        rate_limit_rad_s=1.5f, heading_deviation_limit_rad=0.35f;
     static constexpr std::uint32_t arming_timeout_us=500000;
     [[nodiscard]] static bool valid_plan(const Plan& p) noexcept {
-        if (!p.count || p.count>p.hz.size() || p.cycles<3 || p.cycles>12 ||
-            !std::isfinite(p.amplitude_nm) || p.amplitude_nm<=0 ||
-            p.amplitude_nm>amplitude_limit_nm) { return false; }
+        if (!p.count || p.count>p.hz.size() || p.cycles<3 || p.cycles>12) { return false; }
+        if (p.mode==Mode::torque) {
+            if (!std::isfinite(p.amplitude_nm) || p.amplitude_nm<=0 ||
+                p.amplitude_nm>amplitude_limit_nm || p.amplitude_rad!=0) { return false; }
+        } else if (p.mode==Mode::angle) {
+            if (!std::isfinite(p.amplitude_rad) || p.amplitude_rad<=0 ||
+                p.amplitude_rad>amplitude_limit_rad || p.amplitude_nm!=0) { return false; }
+        } else { return false; }
         float duration=0;
         for (unsigned i=0;i<p.count;++i) {
             if (!std::isfinite(p.hz[i]) || p.hz[i]<0.2f || p.hz[i]>5 ||
@@ -51,7 +61,8 @@ public:
             std::fabs(g.rate_rad_s)>rate_limit_rad_s) { return false; }
         plan_=plan; baseline_heading_=g.heading_rad; baseline_epoch_=g.reference_epoch;
         armed_at_=segment_at_=last_at_=now;
-        state_={}; state_.phase=g.dm_enabled ? Phase::running : Phase::arming;
+        state_={}; state_.mode=plan.mode;
+        state_.phase=g.dm_enabled ? Phase::running : Phase::arming;
         state_.frequency_count=plan.count; state_.frequency_hz=plan.hz[0];
         state_.run_id=++run_id_;
         return true;
@@ -85,14 +96,31 @@ public:
                 state_.phase=Phase::complete; state_.frequency_hz=0; return 0;
             }
         }
-        const float hz=plan_.hz[state_.frequency_index], t=static_cast<float>(elapsed)*1e-6f;
-        const float period=1/hz, remaining=static_cast<float>(plan_.cycles)*period-t;
-        const float envelope=std::clamp(std::min(t,remaining)/period,0.0f,1.0f);
-        state_.frequency_hz=hz;
-        state_.requested_nm=plan_.amplitude_nm*envelope*std::sin(6.283185307179586f*hz*t);
+        state_.frequency_hz=plan_.hz[state_.frequency_index];
+        if (plan_.mode==Mode::torque) {
+            state_.requested_nm=plan_.amplitude_nm*wave(state_.frequency_hz,elapsed);
+        }
         return state_.requested_nm;
     }
-    void applied(float value) noexcept { if (state_.phase==Phase::running) { state_.applied_nm=value; } }
+    // 目标在仲裁前按本周期时间求值; 状态推进与保护仍在执行提交前完成, 不引入一拍延迟.
+    [[nodiscard]] std::optional<float> angle_target(std::uint32_t now) const noexcept {
+        if (!active() || plan_.mode!=Mode::angle) { return std::nullopt; }
+        if (state_.phase==Phase::arming) { return baseline_heading_; }
+        auto elapsed=now-segment_at_;
+        auto index=state_.frequency_index;
+        while (index<plan_.count) {
+            const float duration=1e6f*static_cast<float>(plan_.cycles)/plan_.hz[index];
+            if (static_cast<float>(elapsed)<duration) {
+                return baseline_heading_+plan_.amplitude_rad*wave(plan_.hz[index],elapsed);
+            }
+            elapsed-=static_cast<std::uint32_t>(duration);
+            ++index;
+        }
+        return baseline_heading_; // 结束边界在同周期提交时锁存并撤输出
+    }
+    void applied(float value) noexcept {
+        if (state_.phase==Phase::running && plan_.mode==Mode::torque) { state_.applied_nm=value; }
+    }
     void abort(Stop reason) noexcept {
         if (active()) { state_.phase=Phase::aborted; state_.stop=reason; }
         state_.requested_nm=state_.applied_nm=0;
@@ -108,6 +136,12 @@ public:
     }
     [[nodiscard]] const Status& status() const noexcept { return state_; }
 private:
+    [[nodiscard]] float wave(float hz,std::uint32_t elapsed) const noexcept {
+        const float t=static_cast<float>(elapsed)*1e-6f, period=1/hz;
+        const float remaining=static_cast<float>(plan_.cycles)*period-t;
+        const float envelope=std::clamp(std::min(t,remaining)/period,0.0f,1.0f);
+        return envelope*std::sin(6.283185307179586f*hz*t);
+    }
     [[nodiscard]] static bool ready(const Guard& g) noexcept {
         return g.maintenance && g.running && g.imu_valid && g.dm_fresh && g.target_valid &&
             g.can_healthy && std::isfinite(g.heading_rad) && std::isfinite(g.rate_rad_s);

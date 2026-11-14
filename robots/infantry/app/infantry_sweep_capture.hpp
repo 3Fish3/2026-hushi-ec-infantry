@@ -20,7 +20,7 @@ enum Flag : std::uint16_t {
     target_valid = 1u << 0, heading_valid = 1u << 1,
     dm_feedback_fresh = 1u << 2, dm_enabled = 1u << 3,
     torque_submitted = 1u << 4, pid_trace_valid = 1u << 5, executing = 1u << 6,
-    sweep_running = 1u << 7, sweep_inhibited = 1u << 8
+    sweep_running = 1u << 7, sweep_inhibited = 1u << 8, sweep_angle = 1u << 9
 };
 struct Sample {
     std::uint32_t sequence{}, timestamp_us{}, reference_epoch{};

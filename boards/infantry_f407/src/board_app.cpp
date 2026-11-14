@@ -484,6 +484,7 @@ extern "C" void ec_board_app_commit(std::uint32_t now_ms) {
         if (dm->enabled(Tick{now_ms})) { s.flags |= app::sweep::dm_enabled; }
     }
     const auto& sw = executor->sweep_status();
+    if (sw.mode == app::sweep::Mode::angle) { s.flags |= app::sweep::sweep_angle; }
     if (sw.phase == app::sweep::Phase::running) { s.flags |= app::sweep::sweep_running; }
     if (sw.phase == app::sweep::Phase::complete || sw.phase == app::sweep::Phase::aborted) {
         s.flags |= app::sweep::sweep_inhibited;

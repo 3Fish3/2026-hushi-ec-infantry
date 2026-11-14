@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""一次受监督的 Yaw 多频力矩激励试验 (单串口 USART1, 921600).
+"""一次受监督的 Yaw 多频激励试验 (单串口 USART1, 921600).
 
-业务请求与采集分页严格串行单飞: 同一时刻只有一个请求在外, 因此业务应答不会被
-采集帧吞掉, 也不需要另建分流传输层. 必须显式 --arm, 并给出经确认的当前世界航向
-目标 (与当前航向相差 <0.1 rad); 不读写任何 PID 或控制参数.
+两种模式共用同一计划与采集: torque 注入力矩, angle 由 MCU 以当前世界航向为基线
+叠加正弦角目标. 业务请求与采集分页严格串行单飞: 同一时刻只有一个请求在外, 因此
+业务应答不会被采集帧吞掉, 也不需要另建分流传输层. 必须显式 --arm, 并给出经确认的
+当前世界航向目标 (与当前航向相差 <0.1 rad); 不读写任何 PID 或控制参数.
 """
 from __future__ import annotations
 
@@ -24,6 +25,7 @@ import infantry_sweep_capture as capture
 
 SWEEP = 0x49
 START, CANCEL = 1, 0
+TORQUE, ANGLE = 1, 2          # op1 力矩幅值 Nm, op2 角度幅值 rad
 REQUEST_TIMEOUT_S = 0.015     # 单次业务请求上限: 两次刷新合计 < 心跳 45 ms
 CAPTURE_TIMEOUT_S = 0.015     # 采集分页只读, 失败可快速重发
 HEARTBEAT_S = 0.045           # 维护权与目标都需要持续刷新
@@ -31,7 +33,7 @@ STARTUP_TIMEOUT_S = 2.0
 ARM_WAIT_S = 0.7               # START ACK 只代表 arming 接受, 运行时由固件随后建立
 DM_FRESH_BIT, DM_ENABLED_BIT = 0x04, 0x08
 MAX_GAP_US = 20000            # 250 Hz 下 4 ms 一条; 5 个周期无记录即视为断档
-ACTIVE_BIT, TERMINAL_BIT = 0x80, 0x100
+ACTIVE_BIT, TERMINAL_BIT, ANGLE_BIT = 0x80, 0x100, 0x200
 REQUIRED_BITS = 0x0F          # target/heading/DM 反馈/DM 使能
 MIN_SAMPLES = 20
 # 固件DM反馈TTL为20ms; 主机预检留出请求往返裕量, 不扩大固件新鲜度门限.
@@ -161,13 +163,16 @@ def wait_ready(client, heading: float, setpoints: list) -> None:
 
 
 def sweep_command(client, op: int, frequencies: list, cycles: int,
-                  amplitude_nm: float) -> dict:
-    """0x49 控制帧: 与固件契约一致, 并保留外层与 body 双重身份校验."""
+                  amplitude: float) -> dict:
+    """0x49 控制帧: 与固件契约一致, 并保留外层与 body 双重身份校验.
+
+    op1 的 amplitude 是力矩 Nm, op2 是角度 rad; 固件按 op 解释同一字段.
+    """
     sequence = client._next_sequence()
     client.frame_sequence = (client.frame_sequence + 1) & 0xFFFF
     outer = client.frame_sequence
     body = bytes([wire.PROTOCOL_VERSION, SWEEP]) + struct.pack(
-        '<IIBBBf', client.session, sequence, op, len(frequencies), cycles, float(amplitude_nm))
+        '<IIBBBf', client.session, sequence, op, len(frequencies), cycles, float(amplitude))
     body += b''.join(struct.pack('<f', value) for value in frequencies)
     rtype, echo, payload = client.transport.exchange(wire.encode_frame(SWEEP, outer, body))
     if rtype != wire.ACK or echo != outer:
@@ -197,7 +202,82 @@ def centered_rms(values: list) -> float:
     return rms([value - mean for value in values])
 
 
-def per_frequency(path: Path, frequencies: list) -> list:
+def _solve3(matrix: list, vector: list):
+    """3x3 正规方程求解 (高斯消元): 角度拟合不引入额外运行时依赖."""
+    rows = [list(matrix[i]) + [vector[i]] for i in range(3)]
+    for column in range(3):
+        pivot = max(range(column, 3), key=lambda r: abs(rows[r][column]))
+        if abs(rows[pivot][column]) < 1e-18:
+            return None
+        rows[column], rows[pivot] = rows[pivot], rows[column]
+        scale = rows[column][column]
+        rows[column] = [value / scale for value in rows[column]]
+        for other in range(3):
+            if other != column:
+                factor = rows[other][column]
+                rows[other] = [a - factor * b for a, b in zip(rows[other], rows[column])]
+    return [rows[i][3] for i in range(3)]
+
+
+def _sinusoid_fit(times: list, values: list, omega: float):
+    """拟合 value ≈ c + a*cos(wt) + b*sin(wt); 返回 (c, 复数幅值 a - jb, 残差RMS)."""
+    basis = [[1.0, math.cos(omega * t), math.sin(omega * t)] for t in times]
+    normal = [[sum(b[i] * b[j] for b in basis) for j in range(3)] for i in range(3)]
+    vector = [sum(b[i] * v for b, v in zip(basis, values)) for i in range(3)]
+    coefficients = _solve3(normal, vector)
+    if coefficients is None:
+        return None
+    mean, cos_part, sin_part = coefficients
+    residuals = [v - (mean + cos_part * b[1] + sin_part * b[2])
+                 for v, b in zip(values, basis)]
+    return mean, complex(cos_part, -sin_part), rms(residuals)
+
+
+def _csv_float(row: dict, field: str) -> float:
+    value = row[field]
+    return float(value) if isinstance(value, str) else value
+
+
+def angle_frequency(hz: float, rows: list) -> dict:
+    """单频角度响应: 以 MCU 记录的实际目标对比实测航向, 剔除首尾各一个渐变周期.
+
+    滞后按常规正值约定 lag = -arg(H/Ytarget), 仅描述该频点的测量结果.
+    """
+    period_us = 1e6 / hz
+    item = dict(hz=hz, samples=len(rows), steady_samples=0, target_amp_rad=0.0,
+                heading_amp_rad=0.0, gain=0.0, residual_rms_rad=0.0, phase_deg=None,
+                lag_deg=None, usable=False)
+    if len(rows) < 2:
+        return item
+    stamps = [int(_csv_float(row, 'timestamp_us')) for row in rows]
+    span = (stamps[-1] - stamps[0]) & 0xFFFFFFFF
+    # MCU 每个频点首尾各用一周期做淡入淡出, 只拟合中间稳态段.
+    steady = [(row, (ts - stamps[0]) & 0xFFFFFFFF) for row, ts in zip(rows, stamps)
+              if period_us <= ((ts - stamps[0]) & 0xFFFFFFFF) <= span - period_us]
+    item['steady_samples'] = len(steady)
+    if len(steady) < MIN_SAMPLES:
+        return item
+    origin = steady[0][1]
+    times = [(offset - origin) * 1e-6 for _, offset in steady]
+    target = [_csv_float(row, 'target_heading_rad') for row, _ in steady]
+    heading = [_csv_float(row, 'heading_rad') for row, _ in steady]
+    omega = 2.0 * math.pi * hz
+    fit_target = _sinusoid_fit(times, target, omega)
+    fit_heading = _sinusoid_fit(times, heading, omega)
+    if fit_target is None or fit_heading is None or abs(fit_target[1]) < 1e-6:
+        return item
+    item['target_amp_rad'] = abs(fit_target[1])
+    item['heading_amp_rad'] = abs(fit_heading[1])
+    item['gain'] = abs(fit_heading[1]) / abs(fit_target[1])
+    item['residual_rms_rad'] = fit_heading[2]
+    response = fit_heading[1] / fit_target[1]
+    item['phase_deg'] = item['lag_deg'] = -math.degrees(math.atan2(response.imag,
+                                                                  response.real))
+    item['usable'] = (item['target_amp_rad'] > 1e-4 and span >= 2.0 * period_us)
+    return item
+
+
+def per_frequency(path: Path, frequencies: list, mode: str = 'torque') -> list:
     """按频点汇总活性样本: 只给测量与注入统计, 不宣称最优或辨识结论."""
     with path.open(newline='', encoding='utf-8') as stream:
         rows = [row for row in csv.DictReader(stream)
@@ -205,6 +285,9 @@ def per_frequency(path: Path, frequencies: list) -> list:
     report = []
     for hz in frequencies:
         subset = [row for row in rows if abs(float(row['sweep_hz']) - hz) <= 1e-3]
+        if mode == 'angle':
+            report.append(angle_frequency(hz, subset))
+            continue
         heading = [float(row['heading_rad']) for row in subset]
         rate = [float(row['heading_rate_rad_s']) for row in subset]
         applied = [float(row['applied_excitation_nm']) for row in subset]
@@ -222,16 +305,19 @@ def per_frequency(path: Path, frequencies: list) -> list:
     return report
 
 
-def acquire(client, args, cursor: int, duration: float, writer, stream, state) -> dict:
+def acquire(client, args, cursor: int, duration: float, writer, stream, state,
+            mode: str = 'torque') -> dict:
     """严格串行地边刷新心跳边按页排空; 由 MCU 时戳与运行位判断结束.
 
     START 只代表 arming 已被接受: 使能与运行由固件重新建立, 这里最多等 ARM_WAIT_S,
-    运行时长从首个 running 记录 (arming 完成) 起按 MCU 时戳计算.
+    运行时长从首个 running 记录 (arming 完成) 起按 MCU 时戳计算. 角度模式下 MCU
+    每个控制周期自行刷新目标, 主机只续维护权, 不用基线目标覆盖正弦目标.
     """
     arm_deadline = time.monotonic() + ARM_WAIT_S
     cutoff = time.monotonic() + duration + 3.0
     heartbeat = time.monotonic()
     setpoints = [('main_yaw', 'position', float(args.target_heading), 0)]
+    expect_angle = mode == 'angle'
     run_id = first_ts = last_ts = last_epoch = None
     terminal_ts = terminal_flags = terminal_reason = None
     active = 0
@@ -243,8 +329,9 @@ def acquire(client, args, cursor: int, duration: float, writer, stream, state) -
             raise RuntimeError(f'arming not confirmed within {ARM_WAIT_S * 1000:.0f} ms')
         if now >= heartbeat:
             accepted(client.authorize(True, 'maintenance'), 'maintenance heartbeat')
-            accepted(client.targets(setpoints, main_yaw_frame='local_inertial'),
-                     'target refresh')
+            if not expect_angle:
+                accepted(client.targets(setpoints, main_yaw_frame='local_inertial'),
+                         'target refresh')
             heartbeat = time.monotonic() + HEARTBEAT_S
         page = capture_page(client, 1, cursor)
         if page['first'] != cursor:
@@ -280,6 +367,12 @@ def acquire(client, args, cursor: int, duration: float, writer, stream, state) -
             if flags & REQUIRED_BITS != REQUIRED_BITS or row['reason'] != 0:
                 raise RuntimeError(
                     f'active sample invalid: flags=0x{flags:03x} reason={row["reason"]}')
+            if bool(flags & ANGLE_BIT) != expect_angle:
+                raise RuntimeError(
+                    f'active sample mode flag 0x{flags:03x} differs from {mode} request')
+            if expect_angle and (row['requested_excitation_nm']
+                                 or row['applied_excitation_nm']):
+                raise RuntimeError('angle sample reports nonzero torque excitation')
             if run_id is None:
                 run_id = row['sweep_run_id']
                 if run_id == 0:
@@ -324,28 +417,50 @@ def confirm_disabled(client, cursor: int) -> dict:
                 authority=authority, confirmed=fresh and not enabled and authority is False)
 
 
-def _plan(args) -> float:
+def _plan(args):
+    """校验模式与幅值单位; 返回 (mode, op, amplitude, duration), 不在此打开串口."""
     if not args.arm:
         raise RuntimeError('explicit --arm required for motor excitation')
+    mode = getattr(args, 'mode', 'torque')
+    if mode not in ('torque', 'angle'):
+        raise ValueError(f'invalid mode {mode!r}: expected torque or angle')
+    amplitude_rad = getattr(args, 'amplitude_rad', None)
+    amplitude_nm = getattr(args, 'amplitude_nm', None)
+    # 单位混用必须先于打开串口拒绝: 角度模式只接受 rad, 力矩模式只接受 Nm.
+    if mode == 'angle':
+        if amplitude_nm is not None:
+            raise ValueError('angle mode takes --amplitude-rad, not --amplitude-nm')
+        amplitude = amplitude_rad
+        op = ANGLE
+        valid = amplitude is not None and math.isfinite(amplitude) \
+            and 0.0 < amplitude <= 0.2
+        unit = 'amplitude rad must be in (0,0.2]'
+    else:
+        if amplitude_rad is not None:
+            raise ValueError('torque mode takes --amplitude-nm, not --amplitude-rad')
+        amplitude = 0.01 if amplitude_nm is None else amplitude_nm
+        op = TORQUE
+        valid = math.isfinite(amplitude) and 0.0 < amplitude <= 0.03
+        unit = 'amplitude Nm must be in (0,0.03]'
     frequencies = args.frequencies
     if (not frequencies or len(frequencies) > 6
             or not all(math.isfinite(f) for f in frequencies)
-            or not 0.2 <= frequencies[0]
+            or frequencies[0] < 0.2
             or any(a >= b for a, b in zip(frequencies, frequencies[1:]))
             or frequencies[-1] > 5.0
-            or not 0.0 < args.amplitude_nm <= 0.03
+            or not valid
             or not 3 <= args.cycles <= 12
             or not math.isfinite(args.target_heading)):
         raise ValueError('invalid plan: 0.2..5 Hz strictly ascending, '
-                         'amplitude in (0,0.03] Nm, cycles 3..12')
+                         f'{unit}, cycles 3..12')
     duration = sum(args.cycles / hz for hz in frequencies)
     if duration > 120.0:
         raise ValueError('invalid plan: total excitation exceeds 120 s')
-    return duration
+    return mode, op, float(amplitude), duration
 
 
 def run(args, link_factory=None) -> dict:
-    duration = _plan(args)
+    mode, op, amplitude, duration = _plan(args)
     report_path = Path(str(args.output) + '.report.json')
     if args.output.exists() or report_path.exists():
         raise FileExistsError(f'will not overwrite {args.output} or its summary')
@@ -354,10 +469,17 @@ def run(args, link_factory=None) -> dict:
     else:
         elf_sha256 = None
     meta = dict(tool='infantry_sweep_trial', schema=capture.SCHEMA, complete=False,
+                mode=mode,
+                amplitude=amplitude, amplitude_unit='rad' if mode == 'angle' else 'Nm',
                 frequencies=list(args.frequencies), cycles=args.cycles,
-                amplitude_nm=args.amplitude_nm, duration_s=duration,
+                duration_s=duration,
                 target_heading_rad=args.target_heading, port=args.serial, baud=args.baud,
                 elf_sha256=elf_sha256)
+    if mode == 'torque':
+        meta['amplitude_nm'] = amplitude
+    else:
+        meta['note'] = ('angle mode: 逐频点正弦航向响应的幅值与滞后, '
+                        '不构成全带宽辨识或最优 PID 结论')
     setpoints = [('main_yaw', 'position', float(args.target_heading), 0)]
     link = client = None
     start_attempted = False
@@ -373,15 +495,15 @@ def run(args, link_factory=None) -> dict:
             writer.writeheader()
             stream.flush()
             start_attempted = True
-            sweep_command(client, START, args.frequencies, args.cycles, args.amplitude_nm)
+            sweep_command(client, op, args.frequencies, args.cycles, amplitude)
             # 在START受理后取游标, 不把两次请求之间的上次终态归入本次运行.
             cursor = capture_page(client, 0, 0)['next']
-            result = acquire(client, args, cursor, duration, writer, stream, state)
+            result = acquire(client, args, cursor, duration, writer, stream, state, mode)
         meta.update(records=result['active_samples'], sweep_run_id=result['run_id'],
                     mcu_span_us=result['mcu_span_us'], expected_us=result['expected_us'],
                     terminal_flags=result['terminal_flags'],
                     terminal_reason=result['terminal_reason'])
-        meta['frequencies_report'] = per_frequency(args.output, args.frequencies)
+        meta['frequencies_report'] = per_frequency(args.output, args.frequencies, mode)
         usable = all(item['usable'] for item in meta['frequencies_report'])
         if result['complete'] and usable:
             meta['complete'] = True
@@ -444,9 +566,13 @@ def main() -> int:
                         help='显式允许电机激励; 仍需遥控左下+右下维护组合')
     parser.add_argument('--target-heading', type=float, required=True,
                         help='操作者确认的当前世界航向 (rad); 必须是当前值附近')
+    parser.add_argument('--mode', choices=('torque', 'angle'), default='torque')
     parser.add_argument('--frequencies', type=float, nargs='+', required=True)
     parser.add_argument('--cycles', type=int, default=5)
-    parser.add_argument('--amplitude-nm', type=float, default=0.01)
+    parser.add_argument('--amplitude-nm', type=float,
+                        help='torque 模式注入幅值 (Nm, 默认 0.01, 上限 0.03)')
+    parser.add_argument('--amplitude-rad', type=float,
+                        help='angle 模式航向正弦幅值 (rad, 必填, (0,0.2])')
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--elf', type=Path, help='可选: 记录固件身份')
     args = parser.parse_args()

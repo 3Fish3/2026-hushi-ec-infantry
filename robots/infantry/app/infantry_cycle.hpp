@@ -77,18 +77,6 @@ public:
     [[nodiscard]] const CycleOutcome& outcome() const noexcept { return outcome_; }
     [[nodiscard]] const AppInputs& app_inputs() const noexcept { return inputs_; }
 
-    // 频率响应测试: 启用后在 main_yaw 目标上叠加 A·sin(2πft) 的正弦.
-    // 只用于整定, 不改变任何控制律; 关闭时目标完全由摇杆决定.
-    struct SweepConfig {
-        bool enabled{};
-        float amplitude_rad{};
-        float frequency_hz{};
-    };
-    void set_sweep(const SweepConfig& sweep) noexcept {
-        if (!sweep.enabled || !sweep_.enabled) { sweep_base_valid_ = false; }
-        sweep_ = sweep;
-    }
-    [[nodiscard]] const SweepConfig& sweep() const noexcept { return sweep_; }
     // 观测流开关: 关闭后编排层不再向 USART1 写 CAL 行, 参数协议可独占该串口.
     void set_telemetry_enabled(bool enabled) noexcept { telemetry_enabled_ = enabled; }
     [[nodiscard]] bool telemetry_enabled() const noexcept { return telemetry_enabled_; }
@@ -111,11 +99,6 @@ private:
     std::uint32_t local_epoch_{};
     // 各关节域的参考代次快照: 参改变后丢弃该域已保持的本地角度目标.
     std::array<std::uint32_t, joint_slot_count> reference_epochs_{};
-    SweepConfig sweep_{};
-    float sweep_base_rad_{};
-    bool sweep_base_valid_{};
-    Tick sweep_start_{};
-    std::uint32_t sweep_reference_epoch_{};
     bool telemetry_enabled_{true};
 };
 } // 命名空间 ec::infantry::app

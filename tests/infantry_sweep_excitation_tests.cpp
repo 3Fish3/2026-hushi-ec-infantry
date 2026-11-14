@@ -74,17 +74,22 @@ static void fault_aborts() {
         {"deviation", [](sweep::Guard& g) { g.heading_rad = 1.0f; }, sweep::Stop::deviation},
         {"speed", [](sweep::Guard& g) { g.rate_rad_s = 2.0f; }, sweep::Stop::speed},
     };
-    for (const auto& item : cases) {
-        sweep::Engine engine;
-        assert(engine.start(plan(), 1000, good));
-        auto faulted = good;
-        item.mutate(faulted);
-        const auto torque = engine.step(2000, faulted);
-        assert(torque == 0.0f);
-        assert(engine.status().phase == sweep::Phase::aborted);
-        assert(engine.status().stop == item.stop);
-        assert(engine.finished());
-        std::printf("  abort %-12s -> %u\n", item.what, static_cast<unsigned>(item.stop));
+    for (auto mode : {sweep::Mode::torque, sweep::Mode::angle}) {
+        for (const auto& item : cases) {
+            sweep::Engine engine;
+            auto trial = plan(); trial.mode = mode;
+            if (mode == sweep::Mode::angle) { trial.amplitude_nm = 0; trial.amplitude_rad = 0.05f; }
+            assert(engine.start(trial, 1000, good));
+            auto faulted = good;
+            item.mutate(faulted);
+            const auto torque = engine.step(2000, faulted);
+            assert(torque == 0.0f);
+            assert(engine.status().phase == sweep::Phase::aborted);
+            assert(engine.status().stop == item.stop);
+            assert(engine.finished());
+            assert(!engine.angle_target(2000));
+            std::printf("  abort %-12s -> %u\n", item.what, static_cast<unsigned>(item.stop));
+        }
     }
     // 时钟跳变超过 10ms 也中止.
     sweep::Engine clock;
@@ -117,7 +122,60 @@ static void rearm_and_apply() {
     assert(wrap.start(plan(), 0xFFFFFC18u, good));
     assert(std::isfinite(wrap.step(0u, good)));
 }
+static void angle_contracts() {
+    auto angle = plan(); angle.mode = sweep::Mode::angle;
+    angle.amplitude_nm = 0; angle.amplitude_rad = 0.05f;
+    assert(sweep::Engine::valid_plan(angle));
+    auto bad = angle; bad.amplitude_nm = 0.01f;
+    assert(!sweep::Engine::valid_plan(bad)); // 不允许两种单位混入同一计划
+    bad = angle; bad.amplitude_rad = 0.2001f;
+    assert(!sweep::Engine::valid_plan(bad));
+    bad = plan(); bad.amplitude_rad = 0.05f;
+    assert(!sweep::Engine::valid_plan(bad));
+    for (float value : {0.0f, -0.01f, NAN, INFINITY}) {
+        bad = angle; bad.amplitude_rad = value;
+        assert(!sweep::Engine::valid_plan(bad));
+    }
+    bad = angle; bad.mode = static_cast<sweep::Mode>(2);
+    assert(!sweep::Engine::valid_plan(bad));
+    const auto good = healthy();
+    sweep::Engine engine;
+    auto arming = good; arming.dm_enabled = false;
+    assert(engine.start(angle, 1000, arming));
+    assert(engine.status().mode == sweep::Mode::angle);
+    assert(engine.angle_target(2000) == good.heading_rad);
+    assert(!engine.start(plan(), 2000, good)); // 角度与力矩试验互斥
+    assert(engine.step(2000, arming) == 0);
+    assert(engine.step(3000, good) == 0); // 新鲜 Enabled 才开始计时
+    constexpr std::uint32_t start = 3000;
+    for (std::uint32_t ms = 1; ms <= 10'500; ++ms) {
+        const auto now = start + ms*1000;
+        const auto target = engine.angle_target(now); // 与 Cycle 一致, 先生成目标再提交
+        assert(target);
+        const std::uint32_t offset = ms < 6000 ? 0 : ms < 9000 ? 6000 : 9000;
+        const float hz = ms < 6000 ? 0.5f : ms < 9000 ? 1.0f : 2.0f;
+        const float t = static_cast<float>(ms-offset)*0.001f;
+        const float envelope = std::clamp(std::min(t, 3/hz-t)*hz, 0.0f, 1.0f);
+        const float expected = good.heading_rad + 0.05f*envelope*std::sin(6.283185307179586f*hz*t);
+        assert(std::fabs(*target-expected) < 2e-6f);
+        assert(engine.step(now, good) == 0);
+        engine.applied(0.02f); // 角度模式即使被误调用也不记录力矩注入
+        assert(engine.status().requested_nm == 0 && engine.status().applied_nm == 0);
+    }
+    assert(engine.status().phase == sweep::Phase::complete);
+    assert(!engine.angle_target(start+10'501'000));
+    assert(engine.status().mode == sweep::Mode::angle); // 终态采集仍携带模式
+    assert(engine.clear_after_stop());
+    assert(engine.start(plan(), 20'000'000, good));
+    assert(!engine.angle_target(20'001'000));
+    assert(engine.status().mode == sweep::Mode::torque);
+    sweep::Engine wrap;
+    assert(wrap.start(angle, 0xfffffc18u, good));
+    assert(wrap.angle_target(0u));
+    assert(wrap.step(0u, good) == 0);
+}
 int main() {
+    angle_contracts();
     plan_validation();
     run_to_completion();
     fault_aborts();

@@ -4,6 +4,8 @@
 #include "infantry_cycle.hpp"
 #include "infantry_config.hpp"
 #include "infantry_param_apply.hpp"
+#include "infantry_protocol.hpp"
+#include "ec/transport/uart_frame.hpp"
 #include "sim_plant.hpp"
 #include <algorithm>
 #include <cmath>
@@ -480,6 +482,23 @@ void invalid_friction_config_is_rejected() {
     CHECK(!valid_single_gimbal_imu(gimbal, limits));
 }
 
+// 使用真实维护目标链启动有限时长角度试验, 不再依赖已退役的无限正弦配置.
+void start_angle_trial(Rig& rig, float amplitude = 0.2f, float hz = 0.5f) {
+    using namespace ec::infantry::app;
+    rig.app.set_maintenance_session(true, true, 1);
+    for (int i = 0; i < 10; ++i) {
+        rig.feed(FrameSpec{{0,0,0,0},0,Dr16Switch::down,Dr16Switch::down}); rig.cycle_once();
+    }
+    TargetSnapshot held{};
+    held.domains[index(Domain::main_yaw)] = DomainSetpoint{ec::control::ControlMode::position,
+        *rig.perception.local_direction_rad(),0,YawFrame::local_inertial};
+    CHECK(rig.app.accept_targets(held,rig.now,Source::maintenance) == AcceptResult::accepted);
+    rig.feed(FrameSpec{{0,0,0,0},0,Dr16Switch::down,Dr16Switch::down}); rig.cycle_once();
+    sweep::Plan plan{}; plan.mode = sweep::Mode::angle; plan.amplitude_rad = amplitude;
+    plan.count = 1; plan.cycles = 3; plan.hz[0] = hz;
+    CHECK(rig.executor.start_sweep(plan,rig.now,rig.app));
+}
+
 // 两个不推进负载的真实执行链接受相同输入, 唯一差别为在线补偿参数.
 // 逐周期核对最终 MIT 帧、正负号、过零平滑、原限幅和关闭补偿后的输出一致性.
 void friction_assist_preserves_torque_contract() {
@@ -504,12 +523,12 @@ void friction_assist_preserves_torque_contract() {
             bool saw_smooth = false, saw_saturation = false, saw_disabled = false;
             for (int i = 0; i < 2200; ++i) {
                 if (i == 10) {
-                    baseline.cycle.set_sweep({true, 0.2f, 1.0f});
-                    assisted.cycle.set_sweep({true, 0.2f, 1.0f});
+                    start_angle_trial(baseline, 0.2f, 1.0f);
+                    start_angle_trial(assisted, 0.2f, 1.0f);
                 }
                 if (i == 2000) { write(0.0f); }
                 for (auto* rig : {&baseline, &assisted}) {
-                    rig->feed(FrameSpec{{0, 0, 0, 0}, 0, Dr16Switch::up, Dr16Switch::up});
+                    rig->feed(FrameSpec{{0, 0, 0, 0}, 0, Dr16Switch::down, Dr16Switch::down});
                     rig->cycle_once();
                 }
                 const auto& plain = baseline.executor.main_yaw_stats();
@@ -553,20 +572,21 @@ void parameter_writes_do_not_interrupt_sweep() {
     using namespace ec::infantry::app;
     Rig rig;
     ParamStore params{rig.config};
-    rig.cycle.set_sweep({true, 0.2f, 0.5f});
-    for (int i = 0; i < 10; ++i) {
-        rig.feed(FrameSpec{{0, 0, 0, 0}, 0, Dr16Switch::up, Dr16Switch::up});
-        rig.cycle_once();
-    }
+    start_angle_trial(rig);
     const auto epoch = rig.app.reference_epoch();
     const auto generation = rig.app.snapshot().permission.generation;
-    const std::array<std::pair<std::uint16_t, float>, 7> writes{{
-        {18, 0.0f}, {13, 1.2f}, {16, 0.2f}, {17, 0.5f}, {19, 0.15f}, {20, 0.1f}, {18, 1.0f}}};
+    // 原16/17参数必须明确拒绝, 不能写参数后在拨挡时自动起振.
+    for (auto local : {16, 17}) {
+        CHECK(apply_param(params, rig.app, &rig.executor, &rig.perception, &rig.cycle,
+            param_id(domain_count, local), 0.2f, false) == ParamWriteResult::unknown_param);
+    }
+    const std::array<std::pair<std::uint16_t, float>, 5> writes{{
+        {18, 0.0f}, {13, 1.2f}, {19, 0.15f}, {20, 0.1f}, {18, 1.0f}}};
     for (const auto& [local, value] : writes) {
         CHECK(apply_param(params, rig.app, &rig.executor, &rig.perception, &rig.cycle,
             param_id(domain_count, local), value, false) == ParamWriteResult::accepted);
         for (int i = 0; i < 100; ++i) {
-            rig.feed(FrameSpec{{0, 0, 0, 0}, 0, Dr16Switch::up, Dr16Switch::up});
+            rig.feed(FrameSpec{{0, 0, 0, 0}, 0, Dr16Switch::down, Dr16Switch::down});
             rig.cycle_once();
             const auto& execution = rig.app.snapshot().executions[index(Domain::main_yaw)];
             CHECK(execution.execute);
@@ -579,31 +599,24 @@ void parameter_writes_do_not_interrupt_sweep() {
     std::puts("PASS: hot writes preserve yaw execution with continuous valid inputs");
 }
 
-// 无任何参数写入, 仅断遥控, 就能复现执行中断后正弦基准被重新捕获.
-// 已经开始的试验一旦被停止, 不允许恢复运行挡就自动重新激励.
+// 掉线后重连不恢复激励; 只有新 START 才能开始另一次有限时长试验.
 void interrupted_sweep_requires_explicit_restart() {
     using namespace ec::infantry::app;
     Rig rig;
-    rig.cycle.set_sweep({true, 0.2f, 0.5f});
-    for (int i = 0; i < 10; ++i) {
-        rig.feed(FrameSpec{{0, 0, 0, 0}, 0, Dr16Switch::up, Dr16Switch::up});
-        rig.cycle_once();
-    }
-    CHECK(rig.app.snapshot().executions[index(Domain::main_yaw)].execute);
+    start_angle_trial(rig);
+    const auto old_id = rig.executor.sweep_status().run_id;
     for (int i = 0; i < 101; ++i) { rig.cycle_once(); }
     CHECK(!rig.cycle.outcome().remote_online);
-    CHECK(!rig.app.snapshot().executions[index(Domain::main_yaw)].execute);
-    // 失联时试验要退出, 而不是悄悄重新抓一个基准并在重连后自动继续.
-    CHECK(!rig.cycle.sweep().enabled);
+    CHECK(rig.executor.sweep_status().phase == sweep::Phase::aborted);
+    CHECK(!rig.executor.main_yaw_stats().torque_submitted);
     for (int i = 0; i < 5; ++i) {
-        rig.feed(FrameSpec{{0, 0, 0, 0}, 0, Dr16Switch::up, Dr16Switch::up});
-        rig.cycle_once();
+        rig.feed(FrameSpec{{0,0,0,0},0,Dr16Switch::down,Dr16Switch::down}); rig.cycle_once();
     }
-    CHECK(!rig.cycle.sweep().enabled); // 运行挡恢复不自动重启正弦.
-    rig.cycle.set_sweep({true, 0.2f, 0.5f});
-    rig.feed(FrameSpec{{0, 0, 0, 0}, 0, Dr16Switch::up, Dr16Switch::up});
-    rig.cycle_once();
-    CHECK(rig.cycle.sweep().enabled); // 只有明确重新配置才重启.
+    CHECK(rig.executor.sweep_status().phase == sweep::Phase::aborted);
+    CHECK(!rig.executor.main_yaw_stats().torque_submitted);
+    start_angle_trial(rig);
+    CHECK(rig.executor.sweep_status().phase == sweep::Phase::running);
+    CHECK(rig.executor.sweep_status().run_id > old_id);
 }
 
 void invalid_reference_cancels_sweep() {
@@ -611,24 +624,17 @@ void invalid_reference_cancels_sweep() {
     for (int cause = 0; cause < 4; ++cause) {
         Rig rig;
         CHECK(rig.executor.set_gimbal_friction(0.15f, 0.05f));
-        rig.cycle.set_sweep({true, 0.2f, 0.5f});
-        for (int i = 0; i < 10; ++i) {
-            rig.feed(FrameSpec{{0, 0, 0, 0}, 0, Dr16Switch::up, Dr16Switch::up});
-            rig.cycle_once();
-        }
+        start_angle_trial(rig);
         if (cause == 1) { rig.imu_enabled = false; }
         if (cause == 2) { rig.app.invalidate_domain_reference(Domain::main_yaw); }
         if (cause == 3) { rig.plant.dm.emitting = false; }
         for (int i = 0; i < 30; ++i) {
-            rig.feed(FrameSpec{{0, 0, 0, 0}, 0, Dr16Switch::up,
-                cause == 0 ? Dr16Switch::mid : Dr16Switch::up});
-            rig.cycle_once();
+            rig.feed(FrameSpec{{0,0,0,0},0,Dr16Switch::down,
+                cause == 0 ? Dr16Switch::mid : Dr16Switch::down}); rig.cycle_once();
         }
-        CHECK(!rig.cycle.sweep().enabled);
-        if (cause != 2) { // 参考重建后允许普通控制重新捕获, 其它三种故障仍在持续.
-            CHECK(!rig.executor.main_yaw_stats().torque_submitted);
-            CHECK(rig.executor.main_yaw_stats().torque_command_nm == 0.0f);
-        }
+        CHECK(rig.executor.sweep_status().phase == sweep::Phase::aborted);
+        CHECK(!rig.executor.main_yaw_stats().torque_submitted);
+        CHECK(rig.executor.main_yaw_stats().torque_command_nm == 0.0f);
     }
 }
 
@@ -727,10 +733,8 @@ void m2_real_execution_stops_and_rearms() {
         for (int i = 0; i < 110; ++i) { rig.cycle_once(); }
         rig.plant.dm_reports_enabled = false; rig.cycle_once();
         CHECK(rig.executor.sweep_status().phase == sweep::Phase::aborted);
-        rig.cycle.set_sweep({true, 0.2f, 0.5f}); // 旧试验即使尚未起振也必须撤销
         rig.feed(FrameSpec{{0,0,0,0}, 0, Dr16Switch::up, Dr16Switch::mid}); rig.cycle_once();
         CHECK(rig.executor.sweep_status().phase == sweep::Phase::idle);
-        CHECK(!rig.cycle.sweep().enabled);
         CHECK(!rig.cycle.mapper().held_angle(Domain::main_yaw));
         CHECK(!rig.app.target(Domain::main_yaw));
         CHECK(!rig.executor.main_yaw_stats().torque_submitted);
@@ -758,11 +762,122 @@ void m2_real_execution_stops_and_rearms() {
     }
 }
 
+// SYNTHETIC: 真实封帧/会话/仲裁/目标采纳/CAN执行, 不能仅观察排队目标来声称已运行.
+void maintenance_target_sine_runs() {
+    using namespace ec::infantry::app;
+    for (int fault = 0; fault < 9; ++fault) {
+        Rig rig; rig.plant.dm_reports_enabled = false;
+        ParamStore params{rig.config};
+        InfantryHostSession session{rig.app, params, &rig.executor, &rig.perception,
+            ec::Lifetime{200}, 0, &rig.cycle};
+        std::uint32_t sequence = 0;
+        const auto rpc = [&](std::span<const std::uint8_t> payload) {
+            std::array<std::uint8_t, ec::transport::uart_wire_max> wire{};
+            const auto n = ec::transport::encode_uart_frame(payload[1], 17, payload, wire);
+            ec::transport::UartFrameDecoder decoder;
+            std::optional<ec::transport::UartFrame> frame;
+            for (std::size_t i = 0; i < n; ++i) { if (auto f = decoder.push(wire[i])) { frame = f; } }
+            CHECK(frame);
+            std::array<std::uint8_t, protocol_payload_max> response{};
+            const auto size = session.handle({frame->payload.data(), frame->size}, rig.now, response);
+            CHECK(size > 10);
+            return response;
+        };
+        const std::array<std::uint8_t, 6> hello{3,0x40,1,0,0,0}; rpc(hello);
+        const auto authorize = [&] {
+            std::array<std::uint8_t, 16> body{}; PayloadWriter w{body};
+            w.u8(3); w.u8(0x41); w.u32(session.session_id()); w.u32(++sequence);
+            w.u8(1); w.u8(static_cast<std::uint8_t>(Source::maintenance));
+            CHECK(rpc({body.data(),w.size()})[10] == 0);
+        };
+        bool feed_remote = true, heartbeat = true;
+        bool stop = false;
+        const auto step = [&] {
+            if (heartbeat && rig.now.ms % 40 == 0) { authorize(); }
+            static_cast<void>(session.link_state(rig.now));
+            if (feed_remote) {
+                rig.feed(FrameSpec{{0,0,0,0},0,Dr16Switch::down,stop ? Dr16Switch::mid : Dr16Switch::down});
+            }
+            rig.cycle_once();
+            for (const auto& frame : rig.bus1.frames) {
+                bool action = frame.id == 5 && frame.size == 8;
+                for (unsigned b = 0; b < 7; ++b) { action = action && frame.data[b] == 0xff; }
+                if (action && frame.data[7] == 0xfc) { rig.plant.dm_reports_enabled = true; }
+                if (action && frame.data[7] == 0xfd) { rig.plant.dm_reports_enabled = false; }
+            }
+        };
+        authorize();
+        for (int i = 0; i < 5; ++i) { step(); }
+        CHECK(rig.app.authority().source() == Source::maintenance);
+        TargetSnapshot held{};
+        held.domains[index(Domain::main_yaw)] = DomainSetpoint{ec::control::ControlMode::position,
+            *rig.perception.local_direction_rad(),0,YawFrame::local_inertial};
+        CHECK(rig.app.accept_targets(held,rig.now,Source::maintenance) == AcceptResult::accepted);
+        for (int i = 0; i < 5; ++i) { step(); }
+        // op2明确是角度幅值rad, 不通过旧幅度参数+取权自动触发无限正弦.
+        const auto start = [&](std::uint8_t op, float amplitude, std::uint32_t seq) {
+            std::array<std::uint8_t, 32> body{}; PayloadWriter w{body};
+            w.u8(3); w.u8(0x49); w.u32(session.session_id()); w.u32(seq);
+            w.u8(op); w.u8(1); w.u8(3); w.f32(amplitude); w.f32(5.0f);
+            return rpc({body.data(),w.size()})[10];
+        };
+        CHECK(start(2, 0.201f, ++sequence) == static_cast<unsigned>(ResultCode::invalid_value));
+        CHECK(rig.executor.sweep_status().run_id == 0);
+        CHECK(start(2, 0.05f, ++sequence) == 0);
+        const auto run_id = rig.executor.sweep_status().run_id;
+        CHECK(run_id != 0);
+        CHECK(start(2, 0.05f, sequence) == 0); // 重放 ACK 不会重启或重置相位
+        CHECK(rig.executor.sweep_status().run_id == run_id);
+        CHECK(start(1, 0.01f, ++sequence) == static_cast<unsigned>(ResultCode::invalid_value));
+        CHECK(rig.executor.sweep_status().run_id == run_id);
+        CHECK(rig.executor.sweep_status().mode == sweep::Mode::angle);
+        std::vector<float> adopted;
+        for (int i = 0; i < 650; ++i) {
+            if (i == 120) {
+                if (fault == 1) { feed_remote = false; }
+                if (fault == 2) { heartbeat = false; }
+                if (fault == 3) { rig.imu_enabled = false; }
+                if (fault == 4) { rig.plant.dm.emitting = false; }
+                if (fault == 5) { stop = true; }
+                if (fault == 6) { rig.app.invalidate_domain_reference(Domain::main_yaw); }
+                if (fault == 7) { rig.bus1.refuse = true; }
+                if (fault == 8) {
+                    std::array<std::uint8_t, 24> cancel{}; PayloadWriter c{cancel};
+                    c.u8(3); c.u8(0x49); c.u32(session.session_id()); c.u32(++sequence);
+                    c.u8(0); c.u8(0); c.u8(3); c.f32(0);
+                    CHECK(rpc({cancel.data(),c.size()})[10] == 0);
+                }
+            }
+            if (i == 121 && fault == 7) { rig.bus1.refuse = false; }
+            step();
+            const auto& execution = rig.app.snapshot().executions[index(Domain::main_yaw)];
+            const auto& sw = rig.executor.sweep_status();
+            CHECK(sw.requested_nm == 0 && sw.applied_nm == 0); // 角度试验不加力矩前馈
+            CHECK(!rig.app.target(Domain::chassis_lf));
+            if (sw.phase == sweep::Phase::running && execution.execute &&
+                execution.adopted_target && rig.executor.main_yaw_stats().torque_submitted) {
+                CHECK(execution.frame == YawFrame::local_inertial);
+                adopted.push_back(*execution.adopted_target);
+            }
+        }
+        CHECK(adopted.size() > 50);
+        const auto [lo,hi] = std::minmax_element(adopted.begin(),adopted.end());
+        CHECK(*hi - *lo > 0.01f);
+        if (!fault) {
+            CHECK(rig.executor.sweep_status().phase == sweep::Phase::complete);
+            CHECK(*hi - *lo > 0.07f);
+        } else if (fault != 5) { CHECK(rig.executor.sweep_status().phase == sweep::Phase::aborted); }
+        CHECK(!rig.executor.main_yaw_stats().torque_submitted);
+        if (fault != 4) { CHECK(!rig.plant.dm_reports_enabled); }
+    }
+}
+
 } // namespace
 
 int main() {
     m2_requires_physical_maintenance();
     m2_real_execution_stops_and_rearms();
+    maintenance_target_sine_runs();
     friction_parameters_apply();
     invalid_friction_config_is_rejected();
     friction_assist_preserves_torque_contract();

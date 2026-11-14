@@ -709,7 +709,7 @@ std::size_t InfantryHostSession::handle_diagnostics(std::span<std::uint8_t> resp
 }
 
 // 激励启停请求: 版本/类型/session/seq/op/count/cycles/amplitude, 后接 count 个 f32 频率.
-// op 0 = 取消, op 1 = 启动; 两者都要求当前维护会话持权. 被受理只代表进入执行层保护判断.
+// op 0 = 取消, op 1 = 力矩启动(N·m), op 2 = 角度启动(rad); 均要求当前维护会话持权.
 std::size_t InfantryHostSession::handle_sweep(std::span<std::uint8_t> response,
     std::span<const std::uint8_t> payload, Tick now) noexcept {
     PayloadReader r{payload};
@@ -722,7 +722,9 @@ std::size_t InfantryHostSession::handle_sweep(std::span<std::uint8_t> response,
     const auto cycles = r.u8();
     const auto amplitude = r.f32();
     sweep::Plan plan{};
-    plan.count = count; plan.cycles = cycles; plan.amplitude_nm = amplitude;
+    plan.count = count; plan.cycles = cycles;
+    if (op == 2) { plan.mode = sweep::Mode::angle; plan.amplitude_rad = amplitude; }
+    else { plan.amplitude_nm = amplitude; }
     if (count <= plan.hz.size()) {
         for (unsigned i = 0; i < count; ++i) { plan.hz[i] = r.f32(); }
     }
@@ -736,7 +738,7 @@ std::size_t InfantryHostSession::handle_sweep(std::span<std::uint8_t> response,
     }
     if (op == 0 && count == 0) {
         executor_->cancel_sweep();
-    } else if (op == 1 && sweep::Engine::valid_plan(plan) &&
+    } else if ((op == 1 || op == 2) && sweep::Engine::valid_plan(plan) &&
         executor_->start_sweep(plan, now, *app_)) {
         // 已受理; 执行层仍按每个周期的保护条件决定是否继续.
     } else {

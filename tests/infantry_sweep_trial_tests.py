@@ -6,7 +6,9 @@
 """
 
 import importlib
+import csv
 import json
+import math
 import struct
 import sys
 import tempfile
@@ -100,6 +102,36 @@ def _rows(mutate=None):
     return rows
 
 
+def _angle_rows(hz=0.5, cycles=6, amp=0.2, gain=0.8, lag_deg=30.0):
+    """SYNTHETIC 角度模式记录: 6 周期 0.5 Hz, 目标 ±0.2 rad, 航向增益 0.8/滞后 30°.
+
+    首尾各一周期做淡入淡出 (与 MCU 角度模式一致), 中间 4 周期为稳态拟合段.
+    """
+    baseline = 0.52
+    period_samples = 250.0 / hz
+    total = round(cycles * period_samples)
+    rows = []
+    for index in range(total):
+        t = index * 0.004
+        phase = t * hz
+        envelope = min(1.0, phase, cycles - phase)
+        wave = math.sin(2.0 * math.pi * hz * t)
+        target = baseline + amp * envelope * wave
+        shifted = math.sin(2.0 * math.pi * hz * t - math.radians(lag_deg))
+        heading = baseline + gain * amp * envelope * shifted
+        flags = 0x80 | 0x0F | 0x200
+        rows.append((index * 4000, struct.pack(
+            '<III10fHBBI3f', START_CURSOR + index, index * 4000, 1,
+            target, heading, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+            flags, 0, 5, RUN_ID, hz, 0.0, 0.0)))
+    terminal = total * 4000
+    rows.append((terminal, struct.pack(
+        '<III10fHBBI3f', START_CURSOR + total, terminal, 1,
+        baseline, baseline, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        0x100 | 0x200, 0, 5, RUN_ID, 0.0, 0.0, 0.0)))
+    return rows
+
+
 class FakeDevice:
     """最小伪 MCU: 收真实编码帧, 按业务语义回真实编码应答; 记录调用."""
 
@@ -113,6 +145,10 @@ class FakeDevice:
         self.running = False
         self.has_started = False
         self.targets_sent = 0
+        self.targets_after_start = 0
+        self.start_op = None
+        self.start_amplitude = None
+        self.start_plan = None
         self.closed = False
         self._tail_us = None
         self._decoder = wire.FrameDecoder()
@@ -155,6 +191,8 @@ class FakeDevice:
         elif mtype == wire.TARGETS:
             _, sequence = struct.unpack_from('<II', payload, 2)
             self.targets_sent += 1
+            if self.has_started:
+                self.targets_after_start += 1
             self._reply(wire.TARGETS_ACK, seq, _ack(wire.TARGETS_ACK, sequence))
         elif mtype == wire.STATUS:
             _, sequence, page = struct.unpack_from('<IIB', payload, 2)
@@ -166,8 +204,13 @@ class FakeDevice:
             self._reply(wire.DIAGNOSTICS_PAGE, seq, _diagnostics1(sequence))
         elif mtype == trial.SWEEP:
             _, sequence, op = struct.unpack_from('<IIB', payload, 2)
-            self.running = op == trial.START
-            self.has_started = self.has_started or op == trial.START
+            if op in (trial.TORQUE, trial.ANGLE):
+                self.start_op = op
+                count, cycles, amplitude = struct.unpack_from('<BBf', payload, 11)
+                self.start_amplitude = amplitude
+                self.start_plan = (count, cycles)
+            self.running = op in (trial.TORQUE, trial.ANGLE)
+            self.has_started = self.has_started or self.running
             if op == trial.START and self.drop_start_ack:
                 return
             self._reply(wire.ACK, seq, _ack(wire.ACK, sequence))
@@ -200,7 +243,8 @@ class FakeDevice:
 
 def _args(tmp, arm=True, **overrides):
     values = dict(serial='fake', baud=921600, arm=arm, target_heading=0.52,
-                  frequencies=list(FREQUENCIES), cycles=CYCLES, amplitude_nm=AMPLITUDE,
+                  mode='torque', frequencies=list(FREQUENCIES), cycles=CYCLES,
+                  amplitude_nm=AMPLITUDE, amplitude_rad=None,
                   output=Path(tmp) / 'trial.csv', elf=None)
     values.update(overrides)
     return SimpleNamespace(**values)
@@ -374,6 +418,69 @@ class TrialTests(unittest.TestCase):
         self.assertIn('arming', report['error'])
         self.assertEqual(device.written_types.count(trial.SWEEP), 2)  # START + CANCEL
         self.assertTrue(device.closed)
+
+    def test_angle_requires_rad_before_opening(self):
+        """单位混用/越界必须在打开传输前拒绝: 不出现串口或输出文件."""
+        opened = []
+        for kwargs in ({'mode': 'angle', 'amplitude_rad': None},
+                       {'mode': 'angle', 'amplitude_rad': 0.25},
+                       {'mode': 'angle', 'amplitude_rad': 0.0},
+                       {'mode': 'angle', 'amplitude_rad': 0.2, 'amplitude_nm': 0.01},
+                       {'mode': 'torque', 'amplitude_nm': 0.01, 'amplitude_rad': 0.1},
+                       {'mode': 'bogus'}):
+            with tempfile.TemporaryDirectory() as tmp:
+                args = _args(tmp, **kwargs)
+                with self.assertRaises(ValueError):
+                    trial.run(args, link_factory=lambda: opened.append(1))
+                self.assertFalse(list(Path(tmp).iterdir()))
+        self.assertFalse(opened)
+
+    def test_angle_mode_runs_op2_without_target_refresh(self):
+        """角度模式: op2 幅值 rad, 维护权持续续约, 但不再用基线目标覆盖 MCU 正弦目标."""
+        device = FakeDevice(rows=_angle_rows())
+        with tempfile.TemporaryDirectory() as tmp:
+            args = _args(tmp, mode='angle', amplitude_rad=0.2, amplitude_nm=None,
+                         frequencies=[0.5], cycles=6, target_heading=0.52)
+            meta = trial.run(args, link_factory=lambda: device)
+            report = json.loads(Path(str(args.output) + '.report.json').read_text())
+            with args.output.open() as stream:
+                rows = list(csv.DictReader(stream))
+        self.assertTrue(report['complete'], report)
+        self.assertEqual(report['mode'], 'angle')
+        self.assertEqual(report['amplitude_unit'], 'rad')
+        self.assertAlmostEqual(report['amplitude'], 0.2)
+        self.assertEqual(device.start_op, trial.ANGLE)
+        self.assertAlmostEqual(device.start_amplitude, 0.2)
+        self.assertEqual(device.start_plan, (1, 6))
+        self.assertGreaterEqual(device.authorize_grants, 2)
+        # START 之后只允许清目标收尾, 不得周期性刷新保持基线目标.
+        self.assertLessEqual(device.targets_after_start, 1)
+        self.assertEqual(report['terminal_flags'] & trial.ANGLE_BIT, trial.ANGLE_BIT)
+        self.assertEqual(report['terminal_flags'] & trial.ACTIVE_BIT, 0)
+        self.assertEqual(device.written_types.count(trial.wire.PARAM_WRITE), 0)
+        item = report['frequencies_report'][0]
+        self.assertTrue(item['usable'], item)
+        self.assertGreater(item['steady_samples'], trial.MIN_SAMPLES)
+        self.assertAlmostEqual(item['target_amp_rad'], 0.2, delta=0.02)
+        self.assertAlmostEqual(item['heading_amp_rad'], 0.16, delta=0.02)
+        self.assertAlmostEqual(item['gain'], 0.8, delta=0.1)
+        self.assertAlmostEqual(item['lag_deg'], 30.0, delta=2.0)
+        # 直接读取 CSV 目标列核验记录的就是 MCU 实际目标, 不是主机基线.
+        self.assertGreater(max(abs(float(r['target_heading_rad']) - 0.52) for r in rows),
+                           0.15)
+
+    def test_angle_mode_rejects_torque_flag_rows(self):
+        """角度请求遇到未置 bit9 的活性记录必须判为模式不符, 不静默接受."""
+        device = FakeDevice()
+        with tempfile.TemporaryDirectory() as tmp:
+            args = _args(tmp, mode='angle', amplitude_rad=0.2, amplitude_nm=None,
+                         frequencies=list(FREQUENCIES))
+            with self.assertRaises(RuntimeError) as caught:
+                trial.run(args, link_factory=lambda: device)
+            report = json.loads(Path(str(args.output) + '.report.json').read_text())
+        self.assertIn('mode flag', str(caught.exception))
+        self.assertFalse(report['complete'])
+        self.assertEqual(report['mode'], 'angle')
 
     def test_heading_target_must_near_current(self):
         device = FakeDevice()

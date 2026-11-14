@@ -275,7 +275,10 @@ class PacketTests(unittest.TestCase):
         self.assertEqual(sweep.FIELDS[-4:], ('sweep_run_id', 'sweep_hz',
                                             'requested_excitation_nm',
                                             'applied_excitation_nm'))
-        self.assertEqual(sweep.FLAG_NAMES[7:], ('sweep_running', 'sweep_inhibited'))
+        self.assertEqual(sweep.FLAG_NAMES[7:],
+                         ('sweep_running', 'sweep_inhibited', 'sweep_angle'))
+        # 记录布局未变, 仅新增 flag 位: 已知有效位上限为 0x3ff.
+        self.assertLessEqual((1 << len(sweep.FLAG_NAMES)) - 1, 0x3FF)
 
     def test_page(self):
         row = pack_record(4, 1000, 10, [1.5] * 10, 0b111, 0, 2, 9, (40.0, 0.3, 0.2))

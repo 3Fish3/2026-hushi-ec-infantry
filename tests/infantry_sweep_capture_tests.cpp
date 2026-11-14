@@ -74,6 +74,12 @@ static void recorder_contracts() {
     buffer.fill(0xa5);
     assert(recorder.reply(request(0, 0), std::span{buffer}.first(15)) == 0);
     assert(buffer[15] == 0xa5);
+    // bit9位于 flags 高字节; 扩展标记不改变 schema2 的72字节布局.
+    sweep::Recorder angle;
+    sweep::Sample sample{}; sample.flags = sweep::sweep_angle | sweep::sweep_running;
+    angle.push(sample);
+    assert(angle.reply(request(1, 0), buffer) == 88);
+    assert(buffer[16+52] == 0x80 && buffer[16+53] == 0x02);
 }
 static void wire_and_mux_contracts() {
     const auto [wire, size] = native_golden();
