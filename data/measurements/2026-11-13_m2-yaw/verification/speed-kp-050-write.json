@@ -1,0 +1,28 @@
+{
+  "observed_at": 1794593869.158749,
+  "before": {
+    "angle_kp": 2.0,
+    "speed_kp": 0.3499999940395355,
+    "angle_ki": 0.0,
+    "angle_kd": 0.0,
+    "speed_ki": 0.0,
+    "speed_kd": 0.0,
+    "friction": 0.0,
+    "legacy_amp": 0.0
+  },
+  "write_ack": {
+    "session": 8,
+    "sequence": 11,
+    "result": 0,
+    "result_name": "ACCEPTED",
+    "reason": 0,
+    "reason_name": "none",
+    "effective": 0.5,
+    "reference_epoch": 0,
+    "config_epoch": 1
+  },
+  "speed_kp_readback": 0.5,
+  "source": "none",
+  "authority": false,
+  "executing": []
+}

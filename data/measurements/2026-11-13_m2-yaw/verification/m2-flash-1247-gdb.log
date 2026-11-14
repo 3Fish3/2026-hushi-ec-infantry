@@ -1,0 +1,17 @@
+0x0800a998 in prvIdleTask ()
+[stm32f4x.cpu] halted due to debug-request, current mode: Thread 
+xPSR: 0x01000000 pc: 0x08000bbc msp: 0x20020000
+Loading section .isr_vector, size 0x188 lma 0x8000000
+Loading section .text, size 0x2cd7c lma 0x8000190
+Loading section .rodata, size 0xdb0 lma 0x802cf10
+Loading section .ARM, size 0x8 lma 0x802dcc0
+Loading section .init_array, size 0xc lma 0x802dcc8
+Loading section .fini_array, size 0x4 lma 0x802dcd4
+Loading section .data, size 0xa620 lma 0x802dcd8
+Start address 0x08000bbc, load size 230124
+Transfer rate: 32 KB/sec, 9588 bytes/write.
+verified 230136 bytes in 1.984770s (113.233 KiB/s)
+Section .text, range 0x8000190 -- 0x802cf0c: matched.
+[Inferior 1 (Remote target) detached]
+
+exit: 0

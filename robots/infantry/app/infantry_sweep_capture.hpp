@@ -10,14 +10,17 @@
 #include "ec/transport/uart_frame.hpp"
 
 namespace ec::infantry::app::sweep {
-inline constexpr std::uint8_t request_type = 0x37, response_type = 0xb7, schema = 1;
+inline constexpr std::uint8_t request_type = 0x37, response_type = 0xb7, schema = 2;
+// 256 条约 18 KiB, 会使镜像 RAM 只剩 3.6 KiB; 250 Hz 下 128 条仍保留 512 ms,
+// 足以覆盖主机排空延迟, 因此按 RAM 预算取 128.
 inline constexpr std::uint32_t capacity = 128;
-inline constexpr std::size_t record_size = 56, response_header_size = 16, max_page_records = 4;
+inline constexpr std::size_t record_size = 72, response_header_size = 16, max_page_records = 3;
 
 enum Flag : std::uint16_t {
     target_valid = 1u << 0, heading_valid = 1u << 1,
     dm_feedback_fresh = 1u << 2, dm_enabled = 1u << 3,
-    torque_submitted = 1u << 4, pid_trace_valid = 1u << 5, executing = 1u << 6
+    torque_submitted = 1u << 4, pid_trace_valid = 1u << 5, executing = 1u << 6,
+    sweep_running = 1u << 7, sweep_inhibited = 1u << 8, sweep_angle = 1u << 9
 };
 struct Sample {
     std::uint32_t sequence{}, timestamp_us{}, reference_epoch{};
@@ -27,9 +30,12 @@ struct Sample {
     float speed_target_rad_s{}, speed_p_nm{}, speed_i_nm{};
     std::uint16_t flags{};
     std::uint8_t reason{}, feedback_age_ms{255}; // 255 表示不可用或超过可表达年龄
+    std::uint32_t sweep_run_id{};
+    // requested 是引擎当前需求, applied 仅表示该注入分量被 CAN 队列接纳, 都不是实测力矩.
+    float sweep_hz{}, requested_excitation_nm{}, applied_excitation_nm{};
 };
 static_assert(sizeof(Sample) == record_size);
-static_assert(response_header_size + max_page_records * record_size == 240);
+static_assert(response_header_size + max_page_records * record_size <= 240);
 
 class Recorder {
 public:
@@ -86,6 +92,8 @@ private:
         putf(out, pos, s.torque_command_nm); putf(out, pos, s.torque_feedback_nm);
         putf(out, pos, s.speed_target_rad_s); putf(out, pos, s.speed_p_nm); putf(out, pos, s.speed_i_nm);
         put16(out, pos, s.flags); put8(out, pos, s.reason); put8(out, pos, s.feedback_age_ms);
+        put32(out, pos, s.sweep_run_id); putf(out, pos, s.sweep_hz);
+        putf(out, pos, s.requested_excitation_nm); putf(out, pos, s.applied_excitation_nm);
     }
     std::array<Sample, capacity> samples_{};
     std::uint32_t next_{};
