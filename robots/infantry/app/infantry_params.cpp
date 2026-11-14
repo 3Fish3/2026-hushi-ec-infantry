@@ -137,8 +137,10 @@ ParamStore::ParamStore(const InfantryConfig& config) noexcept {
             const float max_torque = config.dm[0].limits->torque_max_nm;
             add(vehicle_slot, ParamKind::hot, Domain::main_yaw, true, 19, gimbal.friction_torque_nm,
                 0.0f, max_torque, "gimbal_friction_torque_nm", "N*m");
-            add(vehicle_slot, ParamKind::hot, Domain::main_yaw, true, 20, gimbal.friction_band_nm,
-                0.001f, max_torque, "gimbal_friction_band_nm", "N*m");
+            // 20 号由力矩平滑带改为速度门限 (rad/s): 补偿方向取实测速度, 不取力矩符号.
+            add(vehicle_slot, ParamKind::hot, Domain::main_yaw, true, 20, gimbal.friction_speed_rad_s,
+                0.001f, config.dm[0].limits->velocity_max_rad_s,
+                "gimbal_friction_speed_rad_s", "rad/s");
         }
     }
 }

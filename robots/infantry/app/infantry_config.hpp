@@ -122,8 +122,12 @@ struct SingleGimbalImuConfig {
     control::PidConfig angle_pid{};        // rad → rad/s
     control::PidConfig speed_pid{};        // rad/s → N·m
     int torque_direction{1};              // 正世界 yaw 力矩到电机力矩的符号, 仅 +1/-1
-    float friction_torque_nm{};           // 沿 PID 力矩方向的启动补偿幅值; 0 = 关闭, 待实测整定
-    float friction_band_nm{0.05f};        // PID 力矩过零的线性平滑带, 非实测摩擦参数
+    float friction_torque_nm{};           // 库仑摩擦补偿幅值; 0 = 关闭, 待实测整定
+    // 速度门限 (rad/s): 实测航向速率达到它时补偿方向完全取速度方向; 静止带内平滑退回
+    // 按力矩需求起动. 方向不取力矩需求符号 —— 后者每周期过零, 会把补偿变成高频
+    // 继电器并激励机械共振 (实测 1.8-2.6 Hz 极限环).
+    float friction_speed_rad_s{0.05f};
+    float friction_band_nm{0.05f};        // 静止带内按力矩需求起动的线性平滑带, 非实测摩擦参数
 };
 
 // 整车配置根: 九 DJI + 一 DM + 四轮几何 + 三关节几何 + 时序.

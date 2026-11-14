@@ -301,8 +301,8 @@ bool valid_single_gimbal_imu(const SingleGimbalImuConfig& config,
         config.speed_pid.output_max > limits.torque_max_nm ||
         !std::isfinite(config.friction_torque_nm) || config.friction_torque_nm < 0.0f ||
         config.friction_torque_nm > limits.torque_max_nm ||
-        !std::isfinite(config.friction_band_nm) || config.friction_band_nm <= 0.0f ||
-        config.friction_band_nm > limits.torque_max_nm) { return false; }
+        !std::isfinite(config.friction_speed_rad_s) || config.friction_speed_rad_s <= 0.0f ||
+        config.friction_speed_rad_s > limits.velocity_max_rad_s) { return false; }
     return true;
 }
 

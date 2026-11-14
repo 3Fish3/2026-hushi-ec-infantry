@@ -495,14 +495,15 @@ bool InfantryExecutor::set_gimbal_pids(const control::PidConfig& angle,
     return dm_yaw_speed_pid_->set_config(speed);
 }
 
-bool InfantryExecutor::set_gimbal_friction(float torque_nm, float band_nm) noexcept {
+bool InfantryExecutor::set_gimbal_friction(float torque_nm, float speed_rad_s) noexcept {
     if (!dm_yaw_angle_pid_ || !dm_yaw_speed_pid_ || !config_.single_gimbal_imu ||
         !config_.dm[0].limits) { return false; }
-    const float max_torque = config_.dm[0].limits->torque_max_nm;
-    if (!std::isfinite(torque_nm) || torque_nm < 0.0f || torque_nm > max_torque ||
-        !std::isfinite(band_nm) || band_nm <= 0.0f || band_nm > max_torque) { return false; }
+    const auto& limits = *config_.dm[0].limits;
+    if (!std::isfinite(torque_nm) || torque_nm < 0.0f || torque_nm > limits.torque_max_nm ||
+        !std::isfinite(speed_rad_s) || speed_rad_s <= 0.0f ||
+        speed_rad_s > limits.velocity_max_rad_s) { return false; }
     config_.single_gimbal_imu->friction_torque_nm = torque_nm;
-    config_.single_gimbal_imu->friction_band_nm = band_nm;
+    config_.single_gimbal_imu->friction_speed_rad_s = speed_rad_s;
     return true;
 }
 
@@ -734,12 +735,18 @@ void InfantryExecutor::step_pitch(Tick now, const InfantryApp& app, float dt_s, 
             main_yaw_stats_.pid_trace_valid = true;
         }
         const auto& gimbal = *config_.single_gimbal_imu;
-        // 沿 PID 力矩方向提供启动助力; 过零时连续归零, 不用 sign(速度) 硬切换.
-        // 这不是已辨识的摩擦模型; 世界速度为零也不代表电机相对底盘静止.
+        // 库仑摩擦补偿: 摩擦反抗的是**实际运动**, 不是"想加速的意图". 方向取实测航向速率;
+        // 只有静止带内才退回按力矩需求起动, 并随速度线性交接到速度方向.
+        // 不用 sign(力矩需求): 需求每周期过零会让补偿变成高频继电器 (实测 1.8-2.6Hz 极限环).
         float assisted = *torque;
         if (gimbal.friction_torque_nm > 0.0f) {
-            assisted += gimbal.friction_torque_nm *
-                std::clamp(*torque / gimbal.friction_band_nm, -1.0f, 1.0f);
+            const float measured_rate = platform.value.heading_rate;
+            const float moving = std::clamp(measured_rate / gimbal.friction_speed_rad_s,
+                -1.0f, 1.0f);
+            const float intent = std::clamp(*torque / gimbal.friction_band_nm, -1.0f, 1.0f);
+            // |moving| -> 1 时完全取速度方向; 越接近静止越依赖需求方向, 避免静止时助力消失.
+            const float direction = moving + (1.0f - std::fabs(moving)) * intent;
+            assisted += gimbal.friction_torque_nm * std::clamp(direction, -1.0f, 1.0f);
         }
         const auto& limits = dm_yaw_speed_pid_->config();
         assisted = std::clamp(assisted, limits.output_min, limits.output_max);

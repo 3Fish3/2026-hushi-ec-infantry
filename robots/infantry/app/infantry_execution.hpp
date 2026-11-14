@@ -139,12 +139,12 @@ public:
         return dm_yaw_speed_pid_ ? dm_yaw_speed_pid_->config() : control::PidConfig{};
     }
     // 启动补偿只作用于世界稳向的纯力矩路径; 叠加后仍用速度环原输出限幅.
-    [[nodiscard]] bool set_gimbal_friction(float torque_nm, float band_nm) noexcept;
+    [[nodiscard]] bool set_gimbal_friction(float torque_nm, float speed_rad_s) noexcept;
     [[nodiscard]] float gimbal_friction_torque_nm() const noexcept {
         return config_.single_gimbal_imu ? config_.single_gimbal_imu->friction_torque_nm : 0.0f;
     }
-    [[nodiscard]] float gimbal_friction_band_nm() const noexcept {
-        return config_.single_gimbal_imu ? config_.single_gimbal_imu->friction_band_nm : 0.0f;
+    [[nodiscard]] float gimbal_friction_speed_rad_s() const noexcept {
+        return config_.single_gimbal_imu ? config_.single_gimbal_imu->friction_speed_rad_s : 0.0f;
     }
     [[nodiscard]] float dm_mit_kp() const noexcept { return config_.dm[0].mit_kp.value_or(0.0f); }
     [[nodiscard]] float dm_mit_kd() const noexcept { return config_.dm[0].mit_kd.value_or(0.0f); }

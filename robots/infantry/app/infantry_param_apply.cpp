@@ -250,11 +250,11 @@ ParamWriteResult apply_param(ParamStore& params, InfantryApp& app, InfantryExecu
             if (executor == nullptr) { return ParamWriteResult::unsupported; }
             const float torque = local == local_gimbal_friction_torque ? value :
                 executor->gimbal_friction_torque_nm();
-            const float band = local == local_gimbal_friction_band ? value :
-                executor->gimbal_friction_band_nm();
-            if (!executor->set_gimbal_friction(torque, band)) { return ParamWriteResult::invalid_value; }
+            const float speed = local == local_gimbal_friction_band ? value :
+                executor->gimbal_friction_speed_rad_s();
+            if (!executor->set_gimbal_friction(torque, speed)) { return ParamWriteResult::invalid_value; }
             actual = local == local_gimbal_friction_torque ? executor->gimbal_friction_torque_nm() :
-                executor->gimbal_friction_band_nm();
+                executor->gimbal_friction_speed_rad_s();
         } else if (local == local_telemetry_enable) {
             // 观测流开关: 关闭后 USART1 只承载参数协议, 便于不丢帧地写参数.
             if (cycle_ == nullptr) { return ParamWriteResult::unsupported; }
