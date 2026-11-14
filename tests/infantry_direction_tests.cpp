@@ -632,9 +632,137 @@ void invalid_reference_cancels_sweep() {
     }
 }
 
+// SYNTHETIC 实际 Cycle/App/Executor/CAN 路径, 不以孤立 Engine 通过冒充接入完成.
+void m2_requires_physical_maintenance() {
+    using namespace ec::infantry::app;
+    Rig rig;
+    for (int i = 0; i < 5; ++i) {
+        rig.feed(FrameSpec{{0,0,0,0}, 0, Dr16Switch::down, Dr16Switch::up}); rig.cycle_once();
+    }
+    rig.app.set_maintenance_session(true, true, 1);
+    for (int i = 0; i < 5; ++i) {
+        rig.feed(FrameSpec{{0,0,0,0}, 0, Dr16Switch::down, Dr16Switch::up}); rig.cycle_once();
+    }
+    CHECK(rig.app.snapshot().permission.source != Source::maintenance);
+    for (int i = 0; i < 5; ++i) {
+        rig.feed(FrameSpec{{0,0,0,0}, 0, Dr16Switch::down, Dr16Switch::down}); rig.cycle_once();
+    }
+    CHECK(rig.app.snapshot().permission.source == Source::maintenance);
+    CHECK(!rig.app.adopted_twist());
+    // 遥控掉线不能只靠先前锁存的维护挡继续持权.
+    for (int i = 0; i < 110; ++i) { rig.cycle_once(); }
+    CHECK(rig.app.snapshot().permission.source != Source::maintenance);
+}
+
+void m2_real_execution_stops_and_rearms() {
+    using namespace ec::infantry::app;
+    for (int direction : {-1, 1}) {
+        auto config = test_infantry_config(); config.single_gimbal_imu->torque_direction = direction;
+        Rig rig{config}; rig.plant.dm_reports_enabled = false;
+        rig.app.set_maintenance_session(true, true, 1);
+        const auto step = [&] {
+            rig.feed(FrameSpec{{0,0,0,0}, 0, Dr16Switch::down, Dr16Switch::down});
+            if (rig.app.authority().source() == Source::maintenance && rig.perception.local_direction_rad()) {
+                TargetSnapshot target{};
+                target.domains[index(Domain::main_yaw)] = DomainSetpoint{ec::control::ControlMode::position,
+                    *rig.perception.local_direction_rad(), 0, YawFrame::local_inertial};
+                CHECK(rig.app.accept_targets(target, rig.now, Source::maintenance) == AcceptResult::accepted);
+            }
+            rig.cycle_once();
+            for (const auto& frame : rig.bus1.frames) {
+                if (frame.id != 5 || frame.size != 8) { continue; }
+                bool action = true;
+                for (unsigned b = 0; b < 7; ++b) { action = action && frame.data[b] == 0xff; }
+                if (action && frame.data[7] == 0xfc) { rig.plant.dm_reports_enabled = true; }
+                if (action && frame.data[7] == 0xfd) { rig.plant.dm_reports_enabled = false; }
+            }
+        };
+        for (int i = 0; i < 10; ++i) { step(); }
+        sweep::Plan plan{}; plan.count = 1; plan.hz[0] = 5.0f; plan.cycles = 3; plan.amplitude_nm = 0.01f;
+        CHECK(rig.executor.start_sweep(plan, rig.now, rig.app));
+        bool injected = false;
+        for (int i = 0; i < 650; ++i) {
+            step();
+            const auto& state = rig.executor.sweep_status();
+            if (std::fabs(state.requested_nm) > 0.001f && rig.executor.main_yaw_stats().torque_submitted) {
+                injected = true;
+                CHECK(std::fabs(state.requested_nm - state.applied_nm) < 1e-6f);
+                CHECK(std::fabs(rig.executor.main_yaw_stats().torque_command_nm - state.applied_nm) < 1e-5f);
+            }
+        }
+        CHECK(injected);
+        CHECK(rig.executor.sweep_status().phase == sweep::Phase::complete);
+        CHECK(!rig.plant.dm_reports_enabled);
+        CHECK(!rig.executor.main_yaw_stats().torque_submitted);
+        // 新显式 START 可从新鲜 Disabled 反馈进入武装, 不能依赖禁用确认前的竞态.
+        CHECK(rig.executor.start_sweep(plan, rig.now, rig.app));
+        for (int i = 0; i < 100; ++i) { step(); }
+        CHECK(rig.executor.sweep_status().phase == sweep::Phase::running);
+        rig.executor.cancel_sweep(); step();
+        CHECK(rig.executor.sweep_status().phase == sweep::Phase::aborted);
+        CHECK(!rig.plant.dm_reports_enabled);
+        CHECK(!rig.executor.main_yaw_stats().torque_submitted);
+        step(); // 新鲜反馈确认上一周期 disable 已落实
+        const float old_target = rig.app.target(Domain::main_yaw)->value;
+        const float old_speed_kp = rig.executor.gimbal_speed_pid_config().kp;
+        rig.app.set_maintenance_session(false, false, 1);
+        // 直接切普通运行挡不能绕过锁存; 必须先经历物理停止挡.
+        for (int i = 0; i < 5; ++i) {
+            rig.feed(FrameSpec{{0,0,0,0}, 0, Dr16Switch::up, Dr16Switch::up}); rig.cycle_once();
+        }
+        CHECK(rig.executor.sweep_status().phase == sweep::Phase::aborted);
+        CHECK(!rig.executor.main_yaw_stats().torque_submitted);
+        // 没有新鲜电机反馈时, 即使收到停止挡也不能解锁.
+        rig.plant.dm.emitting = false;
+        for (int i = 0; i < 30; ++i) {
+            rig.feed(FrameSpec{{0,0,0,0}, 0, Dr16Switch::up,
+                i < 25 ? Dr16Switch::up : Dr16Switch::mid}); rig.cycle_once();
+        }
+        CHECK(rig.executor.sweep_status().phase == sweep::Phase::aborted);
+        // 发出disable请求不等于已停机; Enabled反馈也不能清锁存.
+        rig.plant.dm.emitting = true; rig.plant.dm_reports_enabled = true;
+        rig.feed(FrameSpec{{0,0,0,0}, 0, Dr16Switch::up, Dr16Switch::mid}); rig.cycle_once();
+        CHECK(rig.executor.sweep_status().phase == sweep::Phase::aborted);
+        // 停止挡锁存不等于新鲜遥控: 掉线后才收到Disabled仍不能解锁.
+        for (int i = 0; i < 110; ++i) { rig.cycle_once(); }
+        rig.plant.dm_reports_enabled = false; rig.cycle_once();
+        CHECK(rig.executor.sweep_status().phase == sweep::Phase::aborted);
+        rig.cycle.set_sweep({true, 0.2f, 0.5f}); // 旧试验即使尚未起振也必须撤销
+        rig.feed(FrameSpec{{0,0,0,0}, 0, Dr16Switch::up, Dr16Switch::mid}); rig.cycle_once();
+        CHECK(rig.executor.sweep_status().phase == sweep::Phase::idle);
+        CHECK(!rig.cycle.sweep().enabled);
+        CHECK(!rig.cycle.mapper().held_angle(Domain::main_yaw));
+        CHECK(!rig.app.target(Domain::main_yaw));
+        CHECK(!rig.executor.main_yaw_stats().torque_submitted);
+        // 停止时手动改变姿态, 再进入普通遥控必须抓当前朝向而非复活旧目标.
+        rig.world_gyro_z = 0.5f;
+        for (int i = 0; i < 100; ++i) {
+            rig.feed(FrameSpec{{0,0,0,0}, 0, Dr16Switch::up, Dr16Switch::mid}); rig.cycle_once();
+        }
+        rig.world_gyro_z = 0;
+        for (int i = 0; i < 5; ++i) {
+            rig.feed(FrameSpec{{0,0,0,0}, 0, Dr16Switch::up, Dr16Switch::up}); rig.cycle_once();
+            for (const auto& frame : rig.bus1.frames) {
+                if (frame.id == 5 && frame.size == 8 && frame.data[0] == 0xff && frame.data[7] == 0xfc) {
+                    rig.plant.dm_reports_enabled = true;
+                }
+            }
+        }
+        const auto target = rig.app.target(Domain::main_yaw);
+        CHECK(target && target->frame == YawFrame::local_inertial);
+        CHECK(std::fabs(target->value - *rig.perception.local_direction_rad()) < 0.001f);
+        CHECK(std::fabs(target->value - old_target) > 0.02f);
+        CHECK(rig.executor.main_yaw_stats().torque_submitted);
+        CHECK(rig.executor.gimbal_speed_pid_config().kp == old_speed_kp);
+        CHECK(rig.executor.sweep_status().phase == sweep::Phase::idle);
+    }
+}
+
 } // namespace
 
 int main() {
+    m2_requires_physical_maintenance();
+    m2_real_execution_stops_and_rearms();
     friction_parameters_apply();
     invalid_friction_config_is_rejected();
     friction_assist_preserves_torque_contract();

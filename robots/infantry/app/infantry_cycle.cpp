@@ -239,8 +239,17 @@ CycleOutcome InfantryCycle::control(const CycleInputs& inputs) noexcept {
         // 仲裁器的停止挡约定为 down; 步兵物理中挡是停止, 下挡是小陀螺.
         // 仅转换给仲裁器的视图, 原始遥控样本仍保持真实挡位.
         if (app_.config().infantry_controls) {
+            // 激励维护组合: 左下+右下. 只在仲裁器视图中改写成外框约定的维护选择,
+            // 原始遥控样本保持真实挡位; 右中仍是人工急停.
+            const bool physical_maintenance =
+                snapshot->switch_left == drivers::Dr16Switch::down &&
+                snapshot->switch_right == drivers::Dr16Switch::down;
+            if (physical_maintenance) {
+                inputs_.link.switch_left = drivers::Dr16Switch::mid;
+                inputs_.link.switch_right = drivers::Dr16Switch::mid;
+            }
             // 左中键鼠和左上摇杆均属于本地来源, 不将键鼠误判为待机.
-            if (snapshot->switch_left == drivers::Dr16Switch::mid) {
+            else if (snapshot->switch_left == drivers::Dr16Switch::mid) {
                 inputs_.link.switch_left = drivers::Dr16Switch::up;
             }
             if (snapshot->switch_right == drivers::Dr16Switch::mid) {
@@ -272,6 +281,14 @@ CycleOutcome InfantryCycle::control(const CycleInputs& inputs) noexcept {
 
     // 5. 应用仲裁: 来源选择/人工停止/故障影响/目标生命周期都在应用层完成.
     app_.update(inputs.now, inputs_);
+    // 右中挡是明确退出试验的操作; 失联后的停止锁存不能代替新鲜物理停止帧.
+    // 清锁存仍要求执行层确认Disabled, 此周期继续停止, 下次本地接管重新捕获航向.
+    if (app_.config().infantry_controls && snapshot && snapshot->switch_right == drivers::Dr16Switch::mid &&
+        executor_.release_sweep_after_stop(inputs.now, app_)) {
+        sweep_.enabled = false;
+        sweep_base_valid_ = false;
+        mapper_.drop_held_angle(Domain::main_yaw);
+    }
     return outcome_;
 }
 
