@@ -223,16 +223,18 @@ RemoteCommand RemoteMapper::step(const std::optional<input::Dr16Snapshot>& sampl
             out.targets.chassis = motion::PlanarTwist{
                 translation_ready ? forward * config_.keyboard_chassis_speed_mps : 0.0f,
                 translation_ready ? left * config_.keyboard_chassis_speed_mps : 0.0f,
-                rotation_ready ? config_.chassis_wz_max_rad_s : 0.0f};
+                rotation_ready ? -config_.chassis_wz_max_rad_s : 0.0f};
             out.chassis_active = true;
         }
     } else {
         mouse_sample_seen_ = false;
         if (local_active && chassis_configured) {
+            // 步兵按用户要求将左杆平移两个方向相对旧版同时反向, 不改变云台与自转方向.
+            const float forward_sign = config_.infantry_controls ? -1.0f : 1.0f;
             out.targets.chassis = motion::PlanarTwist{
-                clampf(sample->axis[3], 1.0f) * config_.chassis_vx_max_mps,
+                forward_sign * clampf(sample->axis[3], 1.0f) * config_.chassis_vx_max_mps,
                 clampf(sample->axis[2], 1.0f) * config_.chassis_vy_max_mps,
-                config_.infantry_controls && out.rotation_gear ? config_.chassis_wz_max_rad_s : 0.0f};
+                config_.infantry_controls && out.rotation_gear ? -config_.chassis_wz_max_rad_s : 0.0f};
             out.chassis_active = true;
         }
     }

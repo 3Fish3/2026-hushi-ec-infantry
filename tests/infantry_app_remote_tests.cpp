@@ -576,7 +576,7 @@ void infantry_switch_contracts() {
     sample.axis = {0.5f, 0.5f, 0.25f, 0.5f};
     command = mapper.step(sample, Tick{1004}, 0.1f, actual);
     CHECK(!command.manual_stop && command.rotation_gear);
-    CHECK(command.targets.chassis && command.targets.chassis->wz_rad_s == 2.0f);
+    CHECK(command.targets.chassis && command.targets.chassis->wz_rad_s == -2.0f);
     CHECK(command.targets.domains[index(Domain::main_yaw)]);
     CHECK(command.targets.domains[index(Domain::pitch)]);
     CHECK(!command.friction_on && !command.targets.domains[index(Domain::trigger)]);
@@ -770,7 +770,7 @@ void infantry_keyboard_mouse_contracts() {
     sample.raw.mouse_x = 5;
     command = mapper.step(sample, Tick{1004}, 0.001f, actual);
     CHECK(command.rotation_gear && command.chassis_active);
-    CHECK(command.targets.chassis->wz_rad_s == 2.0f);
+    CHECK(command.targets.chassis->wz_rad_s == -2.0f);
     CHECK(std::fabs(command.targets.chassis->vx_mps) < 1e-6f);
 
     // 切回左拨杆上挡 (摇杆): 摇杆此刻已偏转, 仍须先回中一次才接管角度.

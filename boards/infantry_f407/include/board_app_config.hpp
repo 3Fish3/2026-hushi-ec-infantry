@@ -3,8 +3,8 @@
 // 本文件只使用 ec::infantry::app 的配置类型, 不含 HAL/板级类型, 因此同一份表既能编进
 // F407 固件, 也能被主机测试与离线检查脚本直接核对, 避免"测试用的表"和"烧录的表"分叉.
 //
-// 步兵装配来自同一份 constexpr 工厂; 未标定 IMU/PID 继续保持缺项.
-// 遥控映射量程未标定时为零, 本模块用于接线与反馈观测, 不授予运动意图.
+// 步兵装配来自同一份 constexpr 工厂; 实车参数及遥控映射已按旧工程换算.
+// 参数齐备不等于实车验收, 板级仍由遥控权限及停止状态决定是否执行.
 #include "infantry_config.hpp"
 #include "infantry_remote.hpp"
 #include <array>
@@ -66,9 +66,8 @@ struct AppControlStep {
     return {static_cast<float>(elapsed) * 1e-6f, elapsed > app_max_dt_ms * 1000u};
 }
 
-// 本地操纵映射量程/档位阈值 (C06). 拨杆量程与 ch4 档位是**实测项**, 未实测时保持为 0:
-// 0 不是"保守值"而是"未配置". 步兵丝杆 pitch 是唯一例外 —— 它沿用旧工程已实测可用的
-// 速度遥控律 (原始计数 → 输出轴角速度), 因此按旧工程数值显式配置, 不是新猜的量程.
+// 本地操纵映射量程/档位阈值 (C06). 底盘与云台摇杆量程由旧工程有效配置换算,
+// 键鼠未配置的比例仍为 0; 转换结果需要在当前车体复核.
 [[nodiscard]] constexpr app::RemoteMappingConfig deployment_mapping() noexcept {
     app::RemoteMappingConfig mapping{};
     mapping.infantry_controls = true;
@@ -83,7 +82,15 @@ struct AppControlStep {
     // 所以位置路径Pitch取+1才能与旧路径的(-raw)×(-1)同向, Yaw仍取-1.
     mapping.yaw_stick_sign = -1;
     mapping.pitch_stick_sign = 1;
-    // 底盘平移/自转量程保持为 0: 未实测, 不产生平移与自转目标.
+    // 按旧工程满杆 3960 输出轴 deg/s 与 60 mm 轮半径换算, 再按要求将速度减半;
+    // 旧全向轮每轴系数为 1, 本框架单位滚动向量含 1/sqrt(2), 故需补偿 sqrt(2).
+    constexpr float pi = 3.14159265358979323846f;
+    constexpr float sqrt2 = 1.4142135623730950488f;
+    mapping.chassis_vx_max_mps = 0.5f * 3960.0f * pi / 180.0f * 0.06f * sqrt2;
+    mapping.chassis_vy_max_mps = mapping.chassis_vx_max_mps;
+    // 旧自转参考 140 换算后再减半; 这是等效目标, 不是实测车体角速度.
+    mapping.chassis_wz_max_rad_s = 0.5f * 140.0f * 400.0f * pi / 180.0f * pi / 180.0f *
+        0.06f * sqrt2 / 0.4f;
     return mapping;
 }
 inline constexpr std::uint32_t app_target_ttl_ms = 100;

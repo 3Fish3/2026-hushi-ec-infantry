@@ -87,6 +87,8 @@ ec::infantry::app::RemoteMappingConfig mapping() {
 // 合成 PID 与 IMU 安装仅用于主机测试, 不是实车参数.
 InfantryConfig test_infantry_config() {
     auto config = ec::infantry::app::infantry_deployment_config();
+    // 合成夹具的电机零点即底盘正前方, 不继承实车本次对齐零偏.
+    config.joints[0].zero_offset_rad = 0.0f;
     ec::infantry::app::SingleGimbalImuConfig imu{};
     imu.origin = ec::infantry::app::Origin::synthetic;
     imu.min_projection_squared = 0.01f;
@@ -170,12 +172,12 @@ void forward_matches_gimbal(float psi, float expect_vx, float expect_vy) {
     rig.feed(FrameSpec{{0, 0, 0, 0}, 0, Dr16Switch::up, Dr16Switch::up});
     rig.cycle_once();
     // 左杆前推: axis[3] 是左摇杆 Y (前后).
-    rig.feed(FrameSpec{{0, 0, 0, stick(0.5f)}, 0, Dr16Switch::up, Dr16Switch::up});
+    rig.feed(FrameSpec{{0, 0, 0, stick(-0.5f)}, 0, Dr16Switch::up, Dr16Switch::up});
     rig.cycle_once();
     const auto adopted = rig.app.adopted_twist();
     CHECK(adopted.has_value());
     if (!adopted) { return; }
-    // 摇杆前推量 = 0.5 * chassis_vx_max (1.0 m/s).
+    // 步兵左杆前后已反向; 负值对应正的云台系前进目标.
     CHECK(std::fabs(adopted->vx_mps - expect_vx) < 1e-3f);
     CHECK(std::fabs(adopted->vy_mps - expect_vy) < 1e-3f);
 }
@@ -191,6 +193,27 @@ void chassis_follows_gimbal() {
     forward_matches_gimbal(-pi * 0.5f, 0.0f, -0.5f);
     // 同一物理方向相隔整圈时, 平移方向相同.
     forward_matches_gimbal(2.0f * pi + pi * 0.5f, 0.0f, 0.5f);
+}
+
+// 非零电机编码零位必须在旋转平移前扣除; 以真实部署配置的正向零偏验证.
+void calibrated_forward_tracks_gimbal() {
+    for (float offset : {0.0f, pi * 0.5f}) {
+        auto config = test_infantry_config();
+        const float zero = *ec::infantry::app::infantry_deployment_config().joints[0].zero_offset_rad;
+        config.joints[0].zero_offset_rad = zero;
+        Rig rig{config};
+        rig.plant.dm.position_rad = zero + offset;
+        rig.feed(FrameSpec{{0, 0, 0, 0}, 0, Dr16Switch::up, Dr16Switch::up});
+        rig.cycle_once();
+        rig.feed(FrameSpec{{0, 0, 0, stick(-0.5f)}, 0, Dr16Switch::up, Dr16Switch::up});
+        rig.cycle_once();
+        const auto adopted = rig.app.adopted_twist();
+        CHECK(adopted.has_value());
+        if (adopted) {
+            CHECK(std::fabs(adopted->vx_mps - 0.5f * std::cos(offset)) < 1e-3f);
+            CHECK(std::fabs(adopted->vy_mps - 0.5f * std::sin(offset)) < 1e-3f);
+        }
+    }
 }
 
 // 云台角无效时禁止平移: 方向契约不成立就宁可不动, 不按错的参考走.
@@ -282,7 +305,7 @@ void infantry_switches_reach_authority() {
     rig.feed(FrameSpec{{stick(0.5f), 0, 0, 0}, 0, Dr16Switch::up, Dr16Switch::down});
     rig.cycle_once();
     CHECK(!rig.app.snapshot().permission.manual_stop);
-    CHECK(rig.app.adopted_twist() && rig.app.adopted_twist()->wz_rad_s > 0.0f);
+    CHECK(rig.app.adopted_twist() && rig.app.adopted_twist()->wz_rad_s < 0.0f);
     CHECK(rig.app.target(Domain::main_yaw)); // 小陀螺时右杆依旧控制云台.
     rig.feed(FrameSpec{{0, 0, 0, 0}, 0, Dr16Switch::mid, Dr16Switch::up});
     rig.cycle_once();
@@ -1165,6 +1188,7 @@ int main() {
     tilted_heading_rate();
     world_heading_closed_loop();
     chassis_follows_gimbal();
+    calibrated_forward_tracks_gimbal();
     no_translation_without_gimbal_angle();
     no_translation_after_gimbal_timeout();
     gimbal_is_drivable();

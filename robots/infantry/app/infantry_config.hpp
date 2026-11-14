@@ -219,11 +219,11 @@ struct ConfigReport {
 [[nodiscard]] bool valid_single_gimbal_imu(const SingleGimbalImuConfig& config,
     const drivers::DmMitLimits& limits) noexcept;
 
-// 步兵部署配置: 四全向轮 + 达妙 yaw + M3508 pitch, 不装配 fire_yaw/摩擦轮/拨弹.
-// 参数来自旧工程工作树; 轮向、零位、量程仍为待标定项.
+// 步兵部署配置: 四全向轮 + 达妙 yaw/pitch, 不装配 fire_yaw/摩擦轮/拨弹.
+// 底盘参数来自旧工程并换算, 轮向、零位与实际速度仍需实车验证.
 [[nodiscard]] constexpr InfantryConfig infantry_deployment_config() noexcept {
     constexpr float pi = 3.14159265358979323846f;
-    // 步兵装配: 四轮全向底盘 + 达妙 yaw + M3508 pitch.
+    // 步兵装配: 四轮全向底盘 + 达妙 yaw 与 pitch.
     // 未装配: fire_yaw(哨兵双云台)、摩擦轮、拨弹 — 保持 installed=false,
     // 其域状态为 unavailable, 不参与 all_complete 判定.
     //
@@ -257,18 +257,23 @@ struct ConfigReport {
         return slot;
     };
 
-    // 底盘四轮: M3508 + C620, CAN1 ID1~4, 减速比 19. 速度环 kp=2.5 (旧工程 Chassis_pid).
-    // 归一化输出量纲: ±1 对应轴侧电流上限; 20 A 满量程, 由 current_limit_a 表达.
-    const control::PidConfig wheel_speed{2.5f, 0.0f, 0.0f, 0.0f, -1.0f, 1.0f};
+    // 底盘四轮: M3508 + C620, CAN1 ID1~4, 旧代码按 19:1 换算输出轴速度.
+    // 旧 Kp=2.5 的输入为转子 deg/s、输出为电流 raw; 新环输入为轮轴 rad/s、输出按 16384 归一化.
+    // ±6300 raw、10 转子 deg/s 死区与 0.1 旧样本滤波权重按同一单位换算.
+    const control::PidConfig wheel_speed{2.5f * 19.0f * 180.0f / pi / 16384.0f,
+        0.0f, 0.0f, 0.0f, -6300.0f / 16384.0f, 6300.0f / 16384.0f};
     const control::PidConfig wheel_position{};
-    config.dji[0] = dji(Domain::chassis_lf, 1, drivers::DjiMode::c620_current, 1, 19.0f, 1,
-        20.0f, 16384.0f, 50.0f, 100.0f, false, wheel_speed, wheel_position);
-    config.dji[1] = dji(Domain::chassis_rf, 1, drivers::DjiMode::c620_current, 2, 19.0f, 1,
-        20.0f, 16384.0f, 50.0f, 100.0f, false, wheel_speed, wheel_position);
-    config.dji[2] = dji(Domain::chassis_lb, 1, drivers::DjiMode::c620_current, 3, 19.0f, 1,
-        20.0f, 16384.0f, 50.0f, 100.0f, false, wheel_speed, wheel_position);
-    config.dji[3] = dji(Domain::chassis_rb, 1, drivers::DjiMode::c620_current, 4, 19.0f, 1,
-        20.0f, 16384.0f, 50.0f, 100.0f, false, wheel_speed, wheel_position);
+    // 目标上限覆盖旧遥控混控理论峰值; 转子上限为 C620 有符号 rpm 字段的编码上界,
+    // 不是机械安全转速. 实际限速与安装方向仍须实车确认.
+    constexpr float wheel_target_max = 115.0f;
+    constexpr float rotor_encoding_max = 32768.0f * 2.0f * pi / 60.0f;
+    for (std::size_t i = 0; i < chassis_wheel_count; ++i) {
+        config.dji[i] = dji(static_cast<Domain>(i), 1, drivers::DjiMode::c620_current,
+            static_cast<std::uint8_t>(i + 1), 19.0f, 1, 20.0f, 16384.0f,
+            wheel_target_max, rotor_encoding_max, false, wheel_speed, wheel_position);
+        config.dji[i].feedback_alpha = 0.1f;
+        config.dji[i].velocity_deadband_rad_s = 10.0f * pi / 180.0f / 19.0f;
+    }
 
     // 丝杆Pitch实物为达妙J4310: DJI槽不再装配, 由下面的 dm[1] 承担.
     // yaw: 达妙 J4310, CAN1 TX/RX 0x005, MIT 闭环.
@@ -302,8 +307,8 @@ struct ConfigReport {
     pitch.mit_kd = 0.5f;
     config.dm[1] = pitch;
 
-    // 底盘几何: 400 mm 轴距/轮距, 轮半径 60 mm, 云台居中.
-    // 轮位按 +X 前 / +Y 左; 滚动方向取切向. gain 为待标定项, 暂用 +1.
+    // 底盘几何: 沿用旧工程 400 mm 轴距/轮距、轮半径 60 mm、云台居中.
+    // 轮位按 +X 前 / +Y 左; 四轮 gain=-1 与旧车实测混控方向一致, 仍需实车复核.
     constexpr std::array<std::array<float, 2>, chassis_wheel_count> positions{{
         {0.2f, 0.2f}, {0.2f, -0.2f}, {-0.2f, 0.2f}, {-0.2f, -0.2f}}};
     constexpr std::array<float, 4> rolling{3*pi/4, pi/4, -3*pi/4, -pi/4};
@@ -312,15 +317,16 @@ struct ConfigReport {
         config.wheels[i].y_m = positions[i][1];
         config.wheels[i].roll_dir_rad = rolling[i];
         config.wheels[i].radius_m = 0.06f;
-        config.wheels[i].gain = 1.0f;
+        config.wheels[i].gain = -1.0f;
     }
 
     // 关节几何: yaw 与 pitch. fire_yaw 未装配, 保持空.
     // yaw 有滑环可连续旋转, 量程取达妙编码器可表示窗口 ±position_max_rad (25 rad 有符号映射),
     // 不沿用旧工程 GM6020 单圈 ±2.6 rad 的可恢复窗口 —— 那个窗口对绝对编码器没有意义,
-    // 且会在大角度时把云台判成 device_fault. zero 待实测.
+    // 且会在大角度时把云台判成 device_fault. 用户将枪管与底盘对齐后, 2026-11-14 静止
+    // 串口12次采样的连续电机位置为 -1.735522985 rad; 软件零偏写入固件, 不写电调零位.
     const float yaw_window = yaw.limits->position_max_rad;
-    config.joints[0] = JointGeometryConfig{Domain::main_yaw, 0.0f, -yaw_window, yaw_window};
+    config.joints[0] = JointGeometryConfig{Domain::main_yaw, -1.735523f, -yaw_window, yaw_window};
     // fire_yaw 未装配: 域名必须显式写成本域, 不能留默认 main_yaw, 否则触发 domain_duplicated.
     // 缺项使其保持 incomplete; 由于该域 unavailable, combine 后仍为 unavailable, 不阻断启动.
     config.joints[1] = JointGeometryConfig{Domain::fire_yaw, std::nullopt, std::nullopt, std::nullopt};
