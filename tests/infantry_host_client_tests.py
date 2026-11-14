@@ -149,7 +149,7 @@ class GoldenVectorTests(unittest.TestCase):
                 with self.assertRaises(client_mod.ProtocolError):
                     client_mod.decode_diagnostics(malformed)
         devices = client_mod.decode_diagnostics(pairs['RES', 'diag1'])
-        self.assertEqual(len(devices['devices']), 10)
+        self.assertEqual(len(devices['devices']), 11)
         # USART6 返回与业务快状态完全相同的已发布载荷; 只请求 0x36, 无 HELLO/授权副作用.
         sent = []
         class Observer:
@@ -177,10 +177,10 @@ class GoldenVectorTests(unittest.TestCase):
         self.assertLess(tx, capacity)
         self.assertGreater(tx, 115200/10)
         self.assertLess(sum((2*(len(body)+8)+2)*hz for body, hz in incoming), capacity)
-        # 最慢出口即使全为 240 B 参数页, 也受 20 Hz 上限约束.
+        # 双DM设备页需要254 B; 业务载荷上限256 B, 最慢出口仍受20 Hz上限约束.
         self.assertLess((2*(12+8)+2)*100 + (2*(214+8)+2)*100 +
-                        (2*(240+8)+2)*20 + (2*(24+8)+2)*20, capacity)
-        self.assertLessEqual(len(client_mod.encode_frame(0xc7, 0x7e7d, b'\x7e'*240)), 512)
+                        (2*(256+8)+2)*20 + (2*(24+8)+2)*20, capacity)
+        self.assertLessEqual(len(client_mod.encode_frame(0xc7, 0x7e7d, b'\x7e'*256)), 530)
         for key in ('fast', 'status', 'requests'):
             value = pairs[('RES', key)]
             for malformed in (value[:-1], value + b'\0'):

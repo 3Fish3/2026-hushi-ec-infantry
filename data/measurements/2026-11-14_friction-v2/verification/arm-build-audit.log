@@ -1,0 +1,137 @@
+[1/86] Building CXX object CMakeFiles/ec_core.dir/src/control/thermal.cpp.obj
+[2/86] Building CXX object CMakeFiles/ec_core.dir/src/control/velocity_loop.cpp.obj
+[3/86] Building CXX object CMakeFiles/ec_core.dir/src/control/pid.cpp.obj
+[4/86] Building CXX object CMakeFiles/ec_core.dir/src/control/authority.cpp.obj
+[5/86] Building CXX object CMakeFiles/ec_core.dir/src/control/position_loop.cpp.obj
+[6/86] Building CXX object CMakeFiles/ec_core.dir/src/drivers/dji.cpp.obj
+[7/86] Building CXX object CMakeFiles/ec_core.dir/src/drivers/bmi088_device.cpp.obj
+[8/86] Building CXX object CMakeFiles/ec_core.dir/src/drivers/dm_device.cpp.obj
+[9/86] Building CXX object CMakeFiles/ec_core.dir/src/drivers/dji_device.cpp.obj
+[10/86] Building CXX object CMakeFiles/ec_core.dir/src/motion/dji_axis.cpp.obj
+[11/86] Building CXX object CMakeFiles/ec_core.dir/src/motion/omni_kinematics.cpp.obj
+[12/86] Building CXX object CMakeFiles/ec_core.dir/src/session.cpp.obj
+[13/86] Building CXX object CMakeFiles/ec_core.dir/src/estimation/attitude.cpp.obj
+[14/86] Building CXX object CMakeFiles/ec_core.dir/src/monitor/registry.cpp.obj
+[15/86] Linking CXX static library libec_core.a
+[16/86] Building CXX object platform/stm32f407/CMakeFiles/ec_stm32f407.dir/src/adapter.cpp.obj
+[17/86] Building CXX object platform/stm32f407/CMakeFiles/ec_stm32f407.dir/src/contract_compile.cpp.obj
+[18/86] Building CXX object CMakeFiles/ec_infantry_recording.dir/robots/infantry/recording/raw_record.cpp.obj
+[19/86] Linking CXX static library libec_infantry_recording.a
+[20/86] Building CXX object CMakeFiles/ec_infantry_app.dir/robots/infantry/app/infantry_authority.cpp.obj
+[21/86] Building CXX object CMakeFiles/ec_infantry_app.dir/robots/infantry/app/infantry_faults.cpp.obj
+[22/86] Building CXX object CMakeFiles/ec_infantry_app.dir/robots/infantry/app/infantry_app.cpp.obj
+[23/86] Building CXX object CMakeFiles/ec_infantry_app.dir/robots/infantry/app/infantry_perception.cpp.obj
+[24/86] Building CXX object CMakeFiles/ec_infantry_app.dir/robots/infantry/app/infantry_config.cpp.obj
+[25/86] Building CXX object CMakeFiles/ec_infantry_app.dir/robots/infantry/app/infantry_remote.cpp.obj
+[26/86] Building CXX object CMakeFiles/ec_infantry_app.dir/robots/infantry/app/infantry_params.cpp.obj
+[27/86] Building CXX object CMakeFiles/ec_infantry_app.dir/robots/infantry/app/infantry_execution.cpp.obj
+[28/86] Building CXX object CMakeFiles/ec_infantry_app.dir/robots/infantry/app/infantry_telemetry.cpp.obj
+[29/86] Building CXX object CMakeFiles/ec_infantry_app.dir/robots/infantry/app/infantry_kinematics.cpp.obj
+[30/86] Building CXX object CMakeFiles/ec_infantry_app.dir/robots/infantry/app/infantry_param_apply.cpp.obj
+[31/86] Linking CXX static library platform/stm32f407/libec_stm32f407.a
+[32/86] Building C object 'boards/infantry_f407/CMakeFiles/ec_s1_vendor.dir/home/kekeyuyu/projects/步兵/infantry/build/deps/STM32CubeF4-v1.28.3/Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal.c.obj'
+[33/86] Building C object 'boards/infantry_f407/CMakeFiles/ec_s1_vendor.dir/home/kekeyuyu/projects/步兵/infantry/build/deps/STM32CubeF4-v1.28.3/Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_rcc.c.obj'
+[34/86] Building C object 'boards/infantry_f407/CMakeFiles/ec_s1_vendor.dir/home/kekeyuyu/projects/步兵/infantry/build/deps/STM32CubeF4-v1.28.3/Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_rcc_ex.c.obj'
+[35/86] Building CXX object CMakeFiles/ec_infantry_app.dir/robots/infantry/app/infantry_cycle.cpp.obj
+[36/86] Building C object 'boards/infantry_f407/CMakeFiles/ec_s1_vendor.dir/home/kekeyuyu/projects/步兵/infantry/build/deps/STM32CubeF4-v1.28.3/Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_cortex.c.obj'
+[37/86] Building C object 'boards/infantry_f407/CMakeFiles/ec_s1_vendor.dir/home/kekeyuyu/projects/步兵/infantry/build/deps/STM32CubeF4-v1.28.3/Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_gpio.c.obj'
+[38/86] Building C object 'boards/infantry_f407/CMakeFiles/ec_s1_vendor.dir/home/kekeyuyu/projects/步兵/infantry/build/deps/STM32CubeF4-v1.28.3/Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_dma.c.obj'
+[39/86] Building C object 'boards/infantry_f407/CMakeFiles/ec_s1_vendor.dir/home/kekeyuyu/projects/步兵/infantry/build/deps/STM32CubeF4-v1.28.3/Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_dma_ex.c.obj'
+[40/86] Building C object 'boards/infantry_f407/CMakeFiles/ec_s1_vendor.dir/home/kekeyuyu/projects/步兵/infantry/build/deps/STM32CubeF4-v1.28.3/Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_flash.c.obj'
+[41/86] Building C object 'boards/infantry_f407/CMakeFiles/ec_s1_vendor.dir/home/kekeyuyu/projects/步兵/infantry/build/deps/STM32CubeF4-v1.28.3/Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_flash_ramfunc.c.obj'
+[42/86] Building C object 'boards/infantry_f407/CMakeFiles/ec_s1_vendor.dir/home/kekeyuyu/projects/步兵/infantry/build/deps/STM32CubeF4-v1.28.3/Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_flash_ex.c.obj'
+[43/86] Building C object 'boards/infantry_f407/CMakeFiles/ec_s1_vendor.dir/home/kekeyuyu/projects/步兵/infantry/build/deps/STM32CubeF4-v1.28.3/Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_pwr.c.obj'
+[44/86] Building C object 'boards/infantry_f407/CMakeFiles/ec_s1_vendor.dir/home/kekeyuyu/projects/步兵/infantry/build/deps/STM32CubeF4-v1.28.3/Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_pwr_ex.c.obj'
+[45/86] Building C object 'boards/infantry_f407/CMakeFiles/ec_s1_vendor.dir/home/kekeyuyu/projects/步兵/infantry/build/deps/STM32CubeF4-v1.28.3/Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_exti.c.obj'
+[46/86] Building CXX object CMakeFiles/ec_infantry_app.dir/robots/infantry/app/infantry_protocol.cpp.obj
+[47/86] Building C object 'boards/infantry_f407/CMakeFiles/ec_s1_vendor.dir/home/kekeyuyu/projects/步兵/infantry/build/deps/STM32CubeF4-v1.28.3/Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_tim_ex.c.obj'
+[48/86] Building C object 'boards/infantry_f407/CMakeFiles/ec_s1_vendor.dir/home/kekeyuyu/projects/步兵/infantry/build/deps/STM32CubeF4-v1.28.3/Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_can.c.obj'
+[49/86] Building C object 'boards/infantry_f407/CMakeFiles/ec_s1_vendor.dir/home/kekeyuyu/projects/步兵/infantry/build/deps/STM32CubeF4-v1.28.3/Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_uart.c.obj'
+[50/86] Building C object 'boards/infantry_f407/CMakeFiles/ec_s1_vendor.dir/home/kekeyuyu/projects/步兵/infantry/build/deps/STM32CubeF4-v1.28.3/Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_spi.c.obj'
+[51/86] Building C object 'boards/infantry_f407/CMakeFiles/ec_s1_vendor.dir/home/kekeyuyu/projects/步兵/infantry/build/deps/STM32CubeF4-v1.28.3/Middlewares/Third_Party/FreeRTOS/Source/list.c.obj'
+[52/86] Building C object 'boards/infantry_f407/CMakeFiles/ec_s1_vendor.dir/home/kekeyuyu/projects/步兵/infantry/build/deps/STM32CubeF4-v1.28.3/Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_tim.c.obj'
+[53/86] Building C object 'boards/infantry_f407/CMakeFiles/ec_s1_vendor.dir/home/kekeyuyu/projects/步兵/infantry/build/deps/STM32CubeF4-v1.28.3/Middlewares/Third_Party/FreeRTOS/Source/queue.c.obj'
+[54/86] Building C object 'boards/infantry_f407/CMakeFiles/ec_s1_vendor.dir/home/kekeyuyu/projects/步兵/infantry/build/deps/STM32CubeF4-v1.28.3/Middlewares/Third_Party/FreeRTOS/Source/tasks.c.obj'
+[55/86] Building C object 'boards/infantry_f407/CMakeFiles/ec_s1_vendor.dir/home/kekeyuyu/projects/步兵/infantry/build/deps/STM32CubeF4-v1.28.3/Middlewares/Third_Party/FreeRTOS/Source/event_groups.c.obj'
+[56/86] Building C object 'boards/infantry_f407/CMakeFiles/ec_s1_vendor.dir/home/kekeyuyu/projects/步兵/infantry/build/deps/STM32CubeF4-v1.28.3/Middlewares/Third_Party/FreeRTOS/Source/portable/GCC/ARM_CM4F/port.c.obj'
+[57/86] Building C object 'boards/infantry_f407/CMakeFiles/ec_s1_vendor.dir/home/kekeyuyu/projects/步兵/infantry/build/deps/STM32CubeF4-v1.28.3/Middlewares/Third_Party/FreeRTOS/Source/timers.c.obj'
+[58/86] Linking CXX static library libec_infantry_app.a
+[59/86] Building C object 'boards/infantry_f407/CMakeFiles/ec_s1_vendor.dir/home/kekeyuyu/projects/步兵/infantry/build/deps/STM32CubeF4-v1.28.3/Middlewares/Third_Party/FreeRTOS/Source/portable/MemMang/heap_4.c.obj'
+[60/86] Building C object 'boards/infantry_f407/CMakeFiles/ec_s1_vendor.dir/home/kekeyuyu/projects/步兵/infantry/build/deps/STM32CubeF4-v1.28.3/Middlewares/Third_Party/FreeRTOS/Source/stream_buffer.c.obj'
+[61/86] Building ASM object boards/infantry_f407/CMakeFiles/infantry_app.dir/cubemx/infantry_s1/startup_stm32f407xx.s.obj
+[62/86] Building C object boards/infantry_f407/CMakeFiles/infantry_app.dir/cubemx/infantry_s1/Core/Src/freertos.c.obj
+[63/86] Building C object boards/infantry_f407/CMakeFiles/infantry_app.dir/cubemx/infantry_s1/Core/Src/gpio.c.obj
+[64/86] Building C object boards/infantry_f407/CMakeFiles/infantry_app.dir/cubemx/infantry_s1/Core/Src/main.c.obj
+[65/86] Building C object boards/infantry_f407/CMakeFiles/infantry_app.dir/cubemx/infantry_s1/Core/Src/stm32f4xx_hal_msp.c.obj
+[66/86] Building C object boards/infantry_f407/CMakeFiles/infantry_app.dir/cubemx/infantry_s1/Core/Src/system_stm32f4xx.c.obj
+[67/86] Building C object boards/infantry_f407/CMakeFiles/infantry_app.dir/cubemx/infantry_s1/Core/Src/stm32f4xx_hal_timebase_tim.c.obj
+[68/86] Building C object boards/infantry_f407/CMakeFiles/infantry_app.dir/cubemx/infantry_s1/Core/Src/dma.c.obj
+[69/86] Building C object boards/infantry_f407/CMakeFiles/infantry_app.dir/cubemx/infantry_s1/Core/Src/stm32f4xx_it.c.obj
+[70/86] Building C object boards/infantry_f407/CMakeFiles/infantry_app.dir/cubemx/infantry_s1/Core/Src/usart.c.obj
+[71/86] Building C object boards/infantry_f407/CMakeFiles/infantry_app.dir/cubemx/infantry_s1/Core/Src/can.c.obj
+[72/86] Building C object 'boards/infantry_f407/CMakeFiles/ec_s1_vendor.dir/home/kekeyuyu/projects/步兵/infantry/build/deps/STM32CubeF4-v1.28.3/Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS_V2/cmsis_os2.c.obj'
+[73/86] Building C object boards/infantry_f407/CMakeFiles/infantry_app.dir/cubemx/infantry_s1/Core/Src/spi.c.obj
+[74/86] Linking CXX static library boards/infantry_f407/libec_s1_vendor.a
+[75/86] Building CXX object boards/infantry_f407/CMakeFiles/infantry_app.dir/src/s1_diagnostics.cpp.obj
+[76/86] Building CXX object boards/infantry_f407/CMakeFiles/infantry_app.dir/src/board_bench.cpp.obj
+[77/86] Building CXX object boards/infantry_f407/CMakeFiles/infantry_app.dir/src/board_monitor.cpp.obj
+[78/86] Building CXX object boards/infantry_f407/CMakeFiles/infantry_app.dir/src/board_assembly.cpp.obj
+[79/86] Building CXX object boards/infantry_f407/CMakeFiles/infantry_app.dir/src/board_registry.cpp.obj
+[80/86] Building CXX object boards/infantry_f407/CMakeFiles/infantry_app.dir/src/board_io.cpp.obj
+[81/86] Building CXX object boards/infantry_f407/CMakeFiles/infantry_app.dir/src/board_rtt.cpp.obj
+[82/86] Building CXX object boards/infantry_f407/CMakeFiles/infantry_app.dir/src/board_inputs.cpp.obj
+[83/86] Building CXX object boards/infantry_f407/CMakeFiles/infantry_app.dir/src/board_raw.cpp.obj
+[84/86] Building CXX object boards/infantry_f407/CMakeFiles/infantry_app.dir/src/board_rtt_format.cpp.obj
+[85/86] Building CXX object boards/infantry_f407/CMakeFiles/infantry_app.dir/src/board_app.cpp.obj
+[86/86] Linking CXX executable boards/infantry_f407/infantry_app.elf
+/usr/arm-none-eabi/bin/ld: /usr/lib/gcc/arm-none-eabi/16.2.0/../../../../arm-none-eabi/lib/thumb/v7e-m+fp/hard/libc_nano.a(libc_a-closer.o): in function `_close_r':
+/build/arm-none-eabi-newlib/src/build-nano/arm-none-eabi/thumb/v7e-m+fp/hard/newlib/../../../../../../newlib-4.6.0.20260123/newlib/libc/reent/closer.c:47:(.text._close_r+0xc): warning: _close is not implemented and will always fail
+/usr/arm-none-eabi/bin/ld: /usr/lib/gcc/arm-none-eabi/16.2.0/../../../../arm-none-eabi/lib/thumb/v7e-m+fp/hard/libc_nano.a(libc_a-closer.o): note: the message above does not take linker garbage collection into account
+/usr/arm-none-eabi/bin/ld: /usr/lib/gcc/arm-none-eabi/16.2.0/../../../../arm-none-eabi/lib/thumb/v7e-m+fp/hard/libc_nano.a(libc_a-lseekr.o): in function `_lseek_r':
+/build/arm-none-eabi-newlib/src/build-nano/arm-none-eabi/thumb/v7e-m+fp/hard/newlib/../../../../../../newlib-4.6.0.20260123/newlib/libc/reent/lseekr.c:49:(.text._lseek_r+0x10): warning: _lseek is not implemented and will always fail
+/usr/arm-none-eabi/bin/ld: /usr/lib/gcc/arm-none-eabi/16.2.0/../../../../arm-none-eabi/lib/thumb/v7e-m+fp/hard/libc_nano.a(libc_a-lseekr.o): note: the message above does not take linker garbage collection into account
+/usr/arm-none-eabi/bin/ld: /usr/lib/gcc/arm-none-eabi/16.2.0/../../../../arm-none-eabi/lib/thumb/v7e-m+fp/hard/libc_nano.a(libc_a-readr.o): in function `_read_r':
+/build/arm-none-eabi-newlib/src/build-nano/arm-none-eabi/thumb/v7e-m+fp/hard/newlib/../../../../../../newlib-4.6.0.20260123/newlib/libc/reent/readr.c:49:(.text._read_r+0x10): warning: _read is not implemented and will always fail
+/usr/arm-none-eabi/bin/ld: /usr/lib/gcc/arm-none-eabi/16.2.0/../../../../arm-none-eabi/lib/thumb/v7e-m+fp/hard/libc_nano.a(libc_a-readr.o): note: the message above does not take linker garbage collection into account
+/usr/arm-none-eabi/bin/ld: /usr/lib/gcc/arm-none-eabi/16.2.0/../../../../arm-none-eabi/lib/thumb/v7e-m+fp/hard/libc_nano.a(libc_a-writer.o): in function `_write_r':
+/build/arm-none-eabi-newlib/src/build-nano/arm-none-eabi/thumb/v7e-m+fp/hard/newlib/../../../../../../newlib-4.6.0.20260123/newlib/libc/reent/writer.c:49:(.text._write_r+0x10): warning: _write is not implemented and will always fail
+/usr/arm-none-eabi/bin/ld: /usr/lib/gcc/arm-none-eabi/16.2.0/../../../../arm-none-eabi/lib/thumb/v7e-m+fp/hard/libc_nano.a(libc_a-writer.o): note: the message above does not take linker garbage collection into account
+Memory region         Used Size  Region Size  %age Used
+             RAM:      118208 B       128 KB     90.19%
+          CCMRAM:           0 B        64 KB      0.00%
+           FLASH:      230856 B         1 MB     22.02%
+   text	   data	    bss	    dec	    hex	filename
+ 188316	  42528	  75680	 306524	  4ad5c	/home/kekeyuyu/projects/步兵/infantry/.claude/worktrees/friction-comp-rootcause/build/infantry-app-arm-Release/boards/infantry_f407/infantry_app.elf
+{
+  "result": "pass",
+  "elf": "/home/kekeyuyu/projects/\u6b65\u5175/infantry/.claude/worktrees/friction-comp-rootcause/build/infantry-app-arm-Release/boards/infantry_f407/infantry_app.elf",
+  "image_bytes": 230856,
+  "elf_sha256": "d57dcb07da6d7d706a1f700ba438c86156a57cdaf97b4046ea1c16e1db132863",
+  "bin_sha256": "19c3b641263a53b3d4107dbd4cc117079e1dd2301d7e0a7415c2f474accd294c",
+  "image_role": "infantry APP (5 installed DJI + 1 DM, 1 kHz, calibration incomplete)",
+  "firmware_label": "app-infantry-friction-v2",
+  "deployment_summary": {
+    "magic": 1162035536,
+    "layout": 2,
+    "kind": 2,
+    "dji_capacity": 9,
+    "dm_capacity": 1,
+    "installed_dji": 5,
+    "installed_dm": 1,
+    "synthetic_values": 0,
+    "unknown_origin_installed": 0,
+    "harness_dji": 5,
+    "harness_dm": 1,
+    "dji_address_0": 257,
+    "dji_address_1": 513,
+    "dji_address_2": 769,
+    "dji_address_3": 1025,
+    "dji_address_4": 1282,
+    "dji_address_5": 0,
+    "dji_address_6": 0,
+    "dji_address_7": 0,
+    "dji_address_8": 0,
+    "dm_address": 328961
+  },
+  "scope": "offline image and source configuration checks only; no hardware execution, no probe, no flashing"
+}

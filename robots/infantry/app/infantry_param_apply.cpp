@@ -26,11 +26,9 @@ constexpr std::uint16_t local_gimbal_angle_kd = 12;
 constexpr std::uint16_t local_gimbal_speed_kp = 13;
 constexpr std::uint16_t local_gimbal_speed_ki = 14;
 constexpr std::uint16_t local_gimbal_speed_kd = 15;
-constexpr std::uint16_t local_sweep_amplitude = 16;
-constexpr std::uint16_t local_sweep_frequency = 17;
 constexpr std::uint16_t local_telemetry_enable = 18;
 constexpr std::uint16_t local_gimbal_friction_torque = 19;
-constexpr std::uint16_t local_gimbal_friction_band = 20;
+constexpr std::uint16_t local_gimbal_friction_speed = 20;
 
 // 从一份 PidConfig 里按局部序号取/放增益, 避免三处重复的 if 链.
 [[nodiscard]] float gain_of(const control::PidConfig& pid, std::uint16_t local) noexcept {
@@ -86,15 +84,15 @@ void set_gain(control::PidConfig& pid, std::uint16_t local, float value) noexcep
         }
         return local == local_current_limit || is_joint_geometry_param(local);
     }
-    if (slot == dji_slot_count) {
-        const auto& dm = app.config().dm[0];
+    if (slot >= dji_slot_count && slot < dji_slot_count + dm_slot_count) {
+        const auto& dm = app.config().dm[slot - dji_slot_count];
         if (!dm.installed) { return false; }
         if (local == 1 || local == 2) { return dm.mit_kp.has_value() && dm.mit_kd.has_value(); }
         return is_joint_geometry_param(local);
     }
-    if (slot == domain_count) {
+    if (slot == dji_slot_count + dm_slot_count) {
         return local == local_vehicle_yaw_alignment || local == local_vehicle_target_ttl ||
-            (local >= local_gimbal_angle_kp && local <= local_gimbal_friction_band);
+            (local >= local_gimbal_angle_kp && local <= local_gimbal_friction_speed);
     }
     return false;
 }
@@ -174,17 +172,20 @@ ParamWriteResult apply_param(ParamStore& params, InfantryApp& app, InfantryExecu
             // 尚未实现不重建对象的生效路径: 明确上报, 不谎报 effective.
             return ParamWriteResult::unsupported;
         }
-    } else if (slot == dji_slot_count) {
-        const auto& dm = app.config().dm[0];
+    } else if (slot >= dji_slot_count && slot < dji_slot_count + dm_slot_count) {
+        const auto& dm = app.config().dm[slot - dji_slot_count];
         if (!dm.installed) { return ParamWriteResult::not_configured; }
+        // 反馈接入阶段的DM槽没有控制输出, 因此没有可在线生效的MIT/几何参数.
+        if (dm.feedback_only) { return ParamWriteResult::unsupported; }
         if (local == 1 || local == 2) {
             if (executor == nullptr || !dm.mit_kp || !dm.mit_kd) {
                 return ParamWriteResult::unsupported;
             }
-            const float kp = local == 1 ? value : executor->dm_mit_kp();
-            const float kd = local == 2 ? value : executor->dm_mit_kd();
-            if (!executor->set_dm_mit_gains(kp, kd)) { return ParamWriteResult::invalid_value; }
-            actual = local == 1 ? executor->dm_mit_kp() : executor->dm_mit_kd();
+            const auto dm_slot = slot - dji_slot_count;
+            const float kp = local == 1 ? value : executor->dm_mit_kp(dm_slot);
+            const float kd = local == 2 ? value : executor->dm_mit_kd(dm_slot);
+            if (!executor->set_dm_mit_gains(kp, kd, dm_slot)) { return ParamWriteResult::invalid_value; }
+            actual = local == 1 ? executor->dm_mit_kp(dm_slot) : executor->dm_mit_kd(dm_slot);
         } else if (local == local_joint_zero || local == local_joint_min ||
                    local == local_joint_max) {
             JointGeometryConfig next{};
@@ -209,7 +210,7 @@ ParamWriteResult apply_param(ParamStore& params, InfantryApp& app, InfantryExecu
         } else {
             return ParamWriteResult::unsupported; // DM 反馈时限: 同上
         }
-    } else if (slot == domain_count) {
+    } else if (slot == dji_slot_count + dm_slot_count) {
         if (local == local_vehicle_yaw_alignment) {
             if (perception == nullptr) { return ParamWriteResult::unsupported; }
             // 惯性对齐偏移与机械零位是两件事: 这里只改惯性参考与 odom 的偏移.
@@ -246,29 +247,20 @@ ParamWriteResult apply_param(ParamStore& params, InfantryApp& app, InfantryExecu
             case local_gimbal_speed_ki: actual = live_speed.ki; break;
             default: actual = live_speed.kd; break;
             }
-        } else if (local == local_gimbal_friction_torque || local == local_gimbal_friction_band) {
+        } else if (local == local_gimbal_friction_torque || local == local_gimbal_friction_speed) {
             if (executor == nullptr) { return ParamWriteResult::unsupported; }
             const float torque = local == local_gimbal_friction_torque ? value :
                 executor->gimbal_friction_torque_nm();
-            const float band = local == local_gimbal_friction_band ? value :
-                executor->gimbal_friction_band_nm();
-            if (!executor->set_gimbal_friction(torque, band)) { return ParamWriteResult::invalid_value; }
+            const float speed = local == local_gimbal_friction_speed ? value :
+                executor->gimbal_friction_speed_rad_s();
+            if (!executor->set_gimbal_friction(torque, speed)) { return ParamWriteResult::invalid_value; }
             actual = local == local_gimbal_friction_torque ? executor->gimbal_friction_torque_nm() :
-                executor->gimbal_friction_band_nm();
+                executor->gimbal_friction_speed_rad_s();
         } else if (local == local_telemetry_enable) {
             // 观测流开关: 关闭后 USART1 只承载参数协议, 便于不丢帧地写参数.
             if (cycle_ == nullptr) { return ParamWriteResult::unsupported; }
             cycle_->set_telemetry_enabled(value >= 0.5f);
             actual = cycle_->telemetry_enabled() ? 1.0f : 0.0f;
-        } else if (local == local_sweep_amplitude || local == local_sweep_frequency) {
-            // 频率响应测试的注入幅度/频率: 直接下发给编排层, 幅度为 0 即关闭.
-            if (cycle_ == nullptr) { return ParamWriteResult::unsupported; }
-            auto sweep = cycle_->sweep();
-            if (local == local_sweep_amplitude) { sweep.amplitude_rad = value; }
-            else { sweep.frequency_hz = value; }
-            sweep.enabled = sweep.amplitude_rad > 0.0f;
-            cycle_->set_sweep(sweep);
-            actual = local == local_sweep_amplitude ? sweep.amplitude_rad : sweep.frequency_hz;
         } else {
             return ParamWriteResult::unsupported;
         }

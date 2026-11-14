@@ -1,0 +1,68 @@
+{
+  "kp035": {
+    "csv": "/home/kekeyuyu/projects/步兵/infantry/.tmp/m2-trial/first-20261113-130744.csv",
+    "records": 1500,
+    "sequence_gaps": 0,
+    "sample_rate_hz": 249.99574723712172,
+    "heading_centered_rms_deg": 0.04404299830664903,
+    "heading_peak_to_peak_deg": 0.14139174600843396,
+    "heading_0_5hz_amplitude_deg": 0.0007136898767299516,
+    "heading_fit_residual_rms_deg": 0.0066780562319784745,
+    "torque_command_peak_nm": 0.02148311212658882,
+    "injection_peak_nm": 0.009999987669289112,
+    "requested_applied_max_diff_nm": 9.313225746154785e-10
+  },
+  "kp050_first": {
+    "csv": "/home/kekeyuyu/projects/步兵/infantry/.tmp/m2-pid-tuning/speed-kp050-fixed-20261113-133742.csv",
+    "records": 1500,
+    "sequence_gaps": 0,
+    "sample_rate_hz": 250.00008338895375,
+    "heading_centered_rms_deg": 0.04159460151906192,
+    "heading_peak_to_peak_deg": 0.13719459476346113,
+    "heading_0_5hz_amplitude_deg": 0.0012220851968436832,
+    "heading_fit_residual_rms_deg": 0.0067281995832353,
+    "torque_command_peak_nm": 0.027241718024015427,
+    "injection_peak_nm": 0.009999945759773254,
+    "requested_applied_max_diff_nm": 9.313225746154785e-10
+  },
+  "kp050_repeat": {
+    "csv": "/home/kekeyuyu/projects/步兵/infantry/.tmp/m2-pid-tuning/speed-kp050-fixed-20261113-134307.csv",
+    "records": 1500,
+    "sequence_gaps": 0,
+    "sample_rate_hz": 250.00596245040535,
+    "heading_centered_rms_deg": 0.05228844557748247,
+    "heading_peak_to_peak_deg": 0.15971202090970066,
+    "heading_0_5hz_amplitude_deg": 0.008121622371345663,
+    "heading_fit_residual_rms_deg": 0.007867350636449603,
+    "torque_command_peak_nm": 0.029627028852701187,
+    "injection_peak_nm": 0.009999955072999,
+    "requested_applied_max_diff_nm": 9.313225746154785e-10
+  },
+  "post_status": {
+    "source": "none",
+    "authority": false,
+    "manual_stop": false,
+    "executing": [],
+    "dm": [
+      {
+        "slot": 9,
+        "domain": "main_yaw",
+        "installed": true,
+        "online": true,
+        "enabled": false,
+        "faulted": false,
+        "assembled": true,
+        "bus": 1,
+        "protocol": 128,
+        "device_id": 5,
+        "feedback_id": 5,
+        "age_ms": 3,
+        "velocity_rad_s": -0.021978022530674934,
+        "effort": 0.0024420025292783976,
+        "effort_unit": "Nm",
+        "temperature_c": 28,
+        "rotor_temperature_c": 26
+      }
+    ]
+  }
+}

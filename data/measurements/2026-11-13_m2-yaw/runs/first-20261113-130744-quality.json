@@ -1,0 +1,19 @@
+{
+  "csv_rows": 1501,
+  "active_rows": 1500,
+  "sequence_gaps": 0,
+  "nominal_interval_us": 4001,
+  "min_interval_us": 3723,
+  "max_interval_us": 4244,
+  "actual_rate_hz": 249.99574723712172,
+  "heading_peak_to_peak_deg": 0.14139174600843396,
+  "command_peak_nm": 0.02148311212658882,
+  "injection_peak_nm": 0.009999987669289112,
+  "requested_applied_max_diff_nm": 9.313225746154785e-10,
+  "post_status": {
+    "source": "none",
+    "authority": false,
+    "manual_stop": false,
+    "executing": []
+  }
+}

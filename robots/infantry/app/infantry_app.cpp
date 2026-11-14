@@ -19,7 +19,9 @@ InfantryApp::InfantryApp(const InfantryConfig& config, ConfigAudience audience) 
 control::StopAction InfantryApp::stop_action_for(Domain domain) const noexcept {
     // A08/A09 已选动作: DJI 显式零电流, DM 请求 disable. 判据是"该域走的是哪条通道",
     // 不是域名字 —— 哨兵里 DM 是 pitch, 步兵里 DM 是 main_yaw.
-    const bool dm = config_.dm[0].installed && config_.dm[0].domain == domain;
+    // 按域查槽: 步兵 yaw(DM0) 与 pitch(DM1) 都要走 disable, 不能只看第一个槽.
+    const auto slot = dm_index_[domain_index(domain)];
+    const bool dm = slot && config_.dm[*slot].installed;
     return dm ? control::StopAction::disable_output : control::StopAction::zero_output;
 }
 
@@ -126,7 +128,8 @@ StatusSnapshot InfantryApp::status(Tick now) const noexcept {
             // 配置齐备不等于现在可执行: 尚无设备反馈, 关节也尚未建立参考.
             entry.configured = true;
             entry.validity = DomainValidity::unknown;
-            entry.reason = is_joint(entry.domain) ? Reason::no_reference : Reason::no_feedback;
+            entry.reason = uses_position_control(entry.domain, config_.infantry_controls)
+                ? Reason::no_reference : Reason::no_feedback;
             break;
         }
     }
@@ -211,7 +214,7 @@ void InfantryApp::update(Tick now, const AppInputs& inputs) noexcept {
     link.maintenance_request = link.maintenance_request || maintenance_session_request_;
     link.maintenance_session_epoch = maintenance_session_epoch_ != 0 ? maintenance_session_epoch_
                                                                      : link.maintenance_session_epoch;
-    const auto decision = authority_.update(link);
+    const auto decision = authority_.update(link, config_.infantry_controls);
     const bool authority_changed =
         decision.source != last_source_ || !(decision.token == last_token_);
     if (authority_changed || decision.manual_stop) { clear_targets(); }
@@ -234,10 +237,10 @@ void InfantryApp::update(Tick now, const AppInputs& inputs) noexcept {
         entry.feedback.position_rad = inputs.feedback[i].position_rad;
         entry.feedback.velocity_rad_s = inputs.feedback[i].velocity_rad_s;
         entry.feedback.current_a = inputs.feedback[i].current_a;
-        // 反馈到位后该域才算"可用": 关节域还需要已建立参考. 故障/过期在第 3 步
+        // 反馈到位后该域才算"可用": 位置控制关节还需要已建立参考. 故障/过期在第 3 步
         // 按 A09 覆盖成 invalid/stale; 这里只区分"从未收到反馈"与"已可用".
         const auto domain = static_cast<Domain>(i);
-        const bool sample_ready = is_joint(domain)
+        const bool sample_ready = uses_position_control(domain, config_.infantry_controls)
             ? inputs.feedback[i].position_rad.validity == Validity::valid
             : inputs.feedback[i].velocity_rad_s.validity == Validity::valid;
         if (report_.domains[i] == ConfigState::complete && sample_ready &&
@@ -415,6 +418,15 @@ void InfantryApp::update(Tick now, const AppInputs& inputs) noexcept {
         execution.mode = target->mode;
         execution.adopted_target = target->value;
         execution.frame = target->frame;
+        if (config_.infantry_controls && domain == Domain::pitch) {
+            const auto& range = config_.joints[joint_index(domain)];
+            const auto& position = inputs.feedback[i].position_rad;
+            if (range.min_rad && range.max_rad && position.validity == Validity::valid) {
+                // 当前超界时先回到最近边界, 不追踪范围内更远的请求目标.
+                if (position.value < *range.min_rad) { execution.adopted_target = *range.min_rad; }
+                else if (position.value > *range.max_rad) { execution.adopted_target = *range.max_rad; }
+            }
+        }
     }
     // 本周期故障/时效判定完成后再发布原请求; 与采用值、参考代次同一快照.
     for (std::size_t i=0; i<domain_count; ++i) { snapshot_.domains[i].target = targets_[i]; }
@@ -523,8 +535,8 @@ AcceptResult InfantryApp::accept_targets(const TargetSnapshot& snapshot, Tick no
             ++rejected_packets_;
             return AcceptResult::not_configured;
         }
-        // 模式—域白名单: 未实现的组合 (关节速度、速度域位置、current) 明确拒绝.
-        if (!mode_allowed_for(domain, setpoint->mode) || !std::isfinite(setpoint->value) ||
+        // 模式—域白名单随部署配置, 不接受未实现的模式组合.
+        if (!mode_allowed_for(domain, setpoint->mode, config_.infantry_controls) || !std::isfinite(setpoint->value) ||
             static_cast<unsigned>(setpoint->frame) > static_cast<unsigned>(YawFrame::odom) ||
             (domain != Domain::main_yaw && setpoint->frame != YawFrame::joint)) {
             ++rejected_packets_;

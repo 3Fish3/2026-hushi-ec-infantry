@@ -1,0 +1,20 @@
+{
+  "elf_sha256": "d57dcb07da6d7d706a1f700ba438c86156a57cdaf97b4046ea1c16e1db132863",
+  "flash_verified_bytes": 230856,
+  "data_lma": [
+    [
+      "0x802dfa8",
+      "0x20000000",
+      42528
+    ]
+  ],
+  "adapter_speed_khz": 100,
+  "original_backup": "/home/kekeyuyu/projects/\u6b65\u5175/infantry/.claude/worktrees/friction-comp-rootcause/.tmp/friction-v2-flash-20261114-055928/previous-full-flash.bin",
+  "original_backup_sha256": "bcd87c30866f31ca80f972c130a17dda10ec022b7ea906a9e1b11ce536b9efed",
+  "gdb_exit": 0,
+  "reset_run": true,
+  "logs": [
+    "/home/kekeyuyu/projects/\u6b65\u5175/infantry/.claude/worktrees/friction-comp-rootcause/.tmp/friction-v2-recovery-20261114-061928/openocd.log",
+    "/home/kekeyuyu/projects/\u6b65\u5175/infantry/.claude/worktrees/friction-comp-rootcause/.tmp/friction-v2-recovery-20261114-061928/gdb.log"
+  ]
+}

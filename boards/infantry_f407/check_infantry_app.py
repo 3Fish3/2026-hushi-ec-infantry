@@ -17,9 +17,9 @@ import subprocess
 SUMMARY_FIELDS = (('magic', 'layout', 'kind', 'dji_capacity', 'dm_capacity', 'installed_dji',
                    'installed_dm', 'synthetic_values', 'unknown_origin_installed',
                    'harness_dji', 'harness_dm') +
-                  tuple(f'dji_address_{slot}' for slot in range(9)) + ('dm_address',))
+                  tuple(f'dji_address_{slot}' for slot in range(9)) + ('dm_address', 'dm_address_1'))
 SUMMARY_MAGIC = 0x45434150
-SUMMARY_LAYOUT = 2
+SUMMARY_LAYOUT = 3
 CONFIG_KIND_REAL_DEPLOYMENT = 2
 
 # 必须存在的 APP 路径符号: 缺任何一个都说明"只编了库/只链了假 sink", 不是 APP 接入.
@@ -127,19 +127,20 @@ def main():
     require(summary['kind'] == CONFIG_KIND_REAL_DEPLOYMENT,
             'Deployment summary must declare a real deployment configuration')
     require(summary['synthetic_values'] == 0, 'Deployment image must not contain synthetic values')
-    require(summary['installed_dji'] == 5 and summary['installed_dm'] == 1,
-            'Infantry layout must contain five DJI devices and one DM yaw')
+    require(summary['installed_dji'] == 4 and summary['installed_dm'] == 2,
+            'Infantry layout must contain four DJI wheels and two DM gimbal axes')
     require(summary['unknown_origin_installed'] == 0,
             'Deployment image must not declare assembled devices without a known origin')
-    require(summary['dji_capacity'] == 9 and summary['dm_capacity'] == 1,
-            'Deployment image must reserve nine DJI slots and one DM slot')
-    require(summary['harness_dji'] == 5 and summary['harness_dm'] == 1,
-            'Deployment image must carry the verified harness list (5 DJI + 1 DM)')
+    require(summary['dji_capacity'] == 9 and summary['dm_capacity'] == 2,
+            'Deployment image must reserve nine DJI slots and two DM slots')
+    require(summary['harness_dji'] == 4 and summary['harness_dm'] == 2,
+            'Deployment image must carry the verified harness list (4 DJI + 2 DM)')
 
-    # 地址级检查与步兵装配一致, 容量仍保留九 DJI 槽.
-    expected = [0x101, 0x201, 0x301, 0x401, 0x502, 0, 0, 0, 0]
+    # 地址级检查与步兵装配一致: 四轮在 CAN1, 两颗达妙分别是 yaw 与丝杆 pitch.
+    expected = [0x101, 0x201, 0x301, 0x401, 0, 0, 0, 0, 0]
     require([summary[f'dji_address_{slot}'] for slot in range(9)] == expected and
-            summary['dm_address'] == (1 | (5 << 8) | (5 << 16)),
+            summary['dm_address'] == (1 | (5 << 8) | (5 << 16)) and
+            summary['dm_address_1'] == (1 | (0x001 << 8) | (0x011 << 16)),
             'Production APP image addresses differ from infantry wiring')
     # 控制任务必须存在且使用静态栈 (不占用 FreeRTOS heap).
     for name in ('appControlStack', 'appControlTaskBuffer'):
@@ -149,7 +150,7 @@ def main():
     print(json.dumps({'result': 'pass', 'elf': str(args.elf), 'image_bytes': len(image),
                       'elf_sha256': hashlib.sha256(elf).hexdigest(),
                       'bin_sha256': hashlib.sha256(image).hexdigest(),
-                      'image_role': 'infantry APP (5 installed DJI + 1 DM, 1 kHz, calibration incomplete)',
+                      'image_role': 'infantry APP (4 installed DJI + 2 DM, 1 kHz, calibration incomplete)',
                       'firmware_label': label,
                       'deployment_summary': summary,
                       'scope': 'offline image and source configuration checks only; '

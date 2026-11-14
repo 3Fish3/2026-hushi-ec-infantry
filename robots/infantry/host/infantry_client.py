@@ -30,7 +30,7 @@ PROTOCOL_VERSION = 3
 FRAME_START = 0x7E
 FRAME_ESCAPE = 0x7D
 ESCAPE_XOR = 0x20
-PAYLOAD_MAX = 240
+PAYLOAD_MAX = 256
 
 HELLO = 0x40
 AUTHORIZE = 0x41
@@ -438,7 +438,9 @@ def decode_diagnostics(payload: bytes) -> dict:
             out['wheel_sample_us'] = r.take('IIII')
             out['wheel_age_us'] = tuple(_age(value) for value in r.take('IIII'))
     elif page == 1:
-        if count != 10:
+        # 槽数 = 九个 DJI 槽 + 达妙槽数; 旧固件只有一颗达妙 (10), 当前为两颗 (11).
+        # 兼容旧镜像只影响读取, 不把旧槽数当成当前配置.
+        if count not in (10, 11):
             raise ProtocolError(f'device page: wrong count {count}')
         out['devices'] = []
         for slot in range(count):

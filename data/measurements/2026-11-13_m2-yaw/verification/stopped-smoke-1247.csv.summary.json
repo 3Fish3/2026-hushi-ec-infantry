@@ -1,0 +1,80 @@
+{
+  "schema": 2,
+  "tool": "infantry_sweep_capture",
+  "port": "/dev/serial/by-id/usb-Horco_Horco_CMSIS-DAP_332107148384-if02",
+  "baud": 921600,
+  "requested_seconds": 0.25,
+  "complete": true,
+  "records": 73,
+  "elf": "/home/kekeyuyu/projects/步兵/infantry/build/infantry-app-arm-Release/boards/infantry_f407/infantry_app.elf",
+  "elf_sha256": "1d58c8a6899c8ca500aa3754e6ef19a580a21f36e87b1514bf88c57db3389a11",
+  "started_cursor": 17295,
+  "next_cursor": 17368,
+  "mcu_span_s": 0.288068,
+  "mcu_rate_hz": 249.941,
+  "timing": {
+    "nominal_period_us": 4001.5,
+    "mean_period_us": 4000.944,
+    "min_period_us": 3855,
+    "max_period_us": 4123,
+    "gap_count": 0,
+    "max_gap_us": 0,
+    "gap_threshold_us": 8003.0
+  },
+  "flags": {
+    "target_valid": {
+      "count": 0,
+      "fraction": 0.0
+    },
+    "heading_valid": {
+      "count": 73,
+      "fraction": 1.0
+    },
+    "dm_feedback_fresh": {
+      "count": 68,
+      "fraction": 0.931507
+    },
+    "dm_enabled": {
+      "count": 0,
+      "fraction": 0.0
+    },
+    "torque_submitted": {
+      "count": 0,
+      "fraction": 0.0
+    },
+    "pid_trace_valid": {
+      "count": 0,
+      "fraction": 0.0
+    },
+    "executing": {
+      "count": 0,
+      "fraction": 0.0
+    },
+    "sweep_running": {
+      "count": 0,
+      "fraction": 0.0
+    },
+    "sweep_inhibited": {
+      "count": 0,
+      "fraction": 0.0
+    }
+  },
+  "non_finite": {
+    "target_heading_rad": 0,
+    "heading_rad": 0,
+    "heading_rate_rad_s": 0,
+    "dm_position_rad": 0,
+    "dm_velocity_rad_s": 0,
+    "torque_command_nm": 0,
+    "torque_feedback_nm": 0,
+    "speed_target_rad_s": 0,
+    "speed_p_nm": 0,
+    "speed_i_nm": 0,
+    "sweep_hz": 0,
+    "requested_excitation_nm": 0,
+    "applied_excitation_nm": 0
+  },
+  "frame_rejections": 1,
+  "lost_replies": 0,
+  "overrun_records": 0
+}

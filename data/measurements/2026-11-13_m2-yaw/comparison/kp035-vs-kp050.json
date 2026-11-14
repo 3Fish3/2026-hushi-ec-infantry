@@ -1,0 +1,59 @@
+{
+  "baseline_kp035": {
+    "active_samples": 1500,
+    "sample_rate_hz": 249.99574723712172,
+    "sequence_gaps": 0,
+    "heading_rms_deg": 0.04404299830664903,
+    "heading_peak_to_peak_deg": 0.14139174600843396,
+    "rate_rms_rad_s": 0.013450500862622948,
+    "torque_command_peak_nm": 0.02148311212658882,
+    "torque_command_rms_nm": 0.00713019905429946,
+    "injection_peak_nm": 0.009999987669289112,
+    "requested_applied_max_diff_nm": 9.313225746154785e-10,
+    "interval_min_us": 3723,
+    "interval_max_us": 4244
+  },
+  "candidate_kp050": {
+    "active_samples": 1500,
+    "sample_rate_hz": 250.00008338895375,
+    "sequence_gaps": 0,
+    "heading_rms_deg": 0.04159460151906192,
+    "heading_peak_to_peak_deg": 0.13719459476346113,
+    "rate_rms_rad_s": 0.013242149397551261,
+    "torque_command_peak_nm": 0.027241718024015427,
+    "torque_command_rms_nm": 0.008468142759361178,
+    "injection_peak_nm": 0.009999945759773254,
+    "requested_applied_max_diff_nm": 9.313225746154785e-10,
+    "interval_min_us": 3756,
+    "interval_max_us": 4259
+  },
+  "observed_heading_rms_reduction_pct": 5.559105605254588,
+  "note": "Single low-amplitude short run per gain; observed RMS differences are not proof of bandwidth improvement.",
+  "post_status": {
+    "source": "none",
+    "authority": false,
+    "manual_stop": false,
+    "executing": [],
+    "dm": [
+      {
+        "slot": 9,
+        "domain": "main_yaw",
+        "installed": true,
+        "online": true,
+        "enabled": false,
+        "faulted": false,
+        "assembled": true,
+        "bus": 1,
+        "protocol": 128,
+        "device_id": 5,
+        "feedback_id": 5,
+        "age_ms": 0,
+        "velocity_rad_s": -0.007326007355004549,
+        "effort": 0.0024420025292783976,
+        "effort_unit": "Nm",
+        "temperature_c": 28,
+        "rotor_temperature_c": 26
+      }
+    ]
+  }
+}

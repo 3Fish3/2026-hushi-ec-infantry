@@ -47,10 +47,10 @@ AxisStatus axis_status(control::PositionStatus status) noexcept {
 DjiAxis::DjiAxis(DjiAxisConfig config, drivers::DjiDevice& device) noexcept
     : config_(config), device_(device),
       velocity_{{config.velocity_pid, device.config().feedback_ttl, config.max_velocity_rad_s,
-                 config.max_dt_s, config.feedback_alpha}},
+                 config.max_dt_s, config.feedback_alpha, config.velocity_deadband_rad_s}},
       position_{{config.position_pid,
                  {config.velocity_pid, device.config().feedback_ttl, config.max_velocity_rad_s,
-                  config.max_dt_s, config.feedback_alpha},
+                  config.max_dt_s, config.feedback_alpha, config.velocity_deadband_rad_s},
                  config.arc}} {
     const auto mode_full_scale = drivers::dji_current_amp_full_scale(device.config().mode);
     const auto protocol = drivers::dji_protocol(device.config().mode);

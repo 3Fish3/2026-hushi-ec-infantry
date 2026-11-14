@@ -45,7 +45,8 @@ public:
     InfantryAuthority& operator=(const InfantryAuthority&) = delete;
 
     // 每周期调用一次; 只读输入, 不产生任何设备动作.
-    [[nodiscard]] AuthorityDecision update(const LinkInputs& inputs) noexcept;
+    [[nodiscard]] AuthorityDecision update(const LinkInputs& inputs,
+        bool require_physical_maintenance = false) noexcept;
     // 整车级撤销 (人工停止、参考/配置代次变化、会话失效等): 立即失效两类授权.
     void revoke() noexcept;
 

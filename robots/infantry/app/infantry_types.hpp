@@ -37,9 +37,9 @@ enum class Domain : std::uint8_t {
 };
 inline constexpr std::size_t domain_count = 10;
 inline constexpr std::size_t chassis_wheel_count = 4;
-// 正式 APP 的设备容量: 九 DJI (四轮 + 两 yaw + 两摩擦轮 + 拨弹) + 一 DM (pitch).
+// 正式 APP 的设备容量: 九 DJI (四轮 + 两 yaw + 两摩擦轮 + 拨弹) + 两 DM (yaw 与 pitch).
 inline constexpr std::size_t dji_slot_count = 9;
-inline constexpr std::size_t dm_slot_count = 1;
+inline constexpr std::size_t dm_slot_count = 2;
 // 三个关节域的设备既可能是 DJI (两 yaw) 也可能是 DM (pitch); 索引用于关节几何表.
 inline constexpr std::size_t joint_slot_count = 3;
 
@@ -52,13 +52,16 @@ inline constexpr std::size_t joint_slot_count = 3;
 [[nodiscard]] constexpr bool is_joint(Domain domain) noexcept {
     return domain == Domain::main_yaw || domain == Domain::fire_yaw || domain == Domain::pitch;
 }
-// 模式—域白名单: 位置域只接受位置意图, 速度域只接受速度意图.
-// 未实现的组合 (对关节下发速度、对速度域下发位置、任何 current) 明确拒绝,
-// 不允许"接受后再在别处按另一种语义执行". 协议层与应用层共用这一个定义.
-[[nodiscard]] constexpr bool mode_allowed_for(Domain domain, control::ControlMode mode) noexcept {
-    if (mode == control::ControlMode::none) { return false; }
-    if (is_joint(domain)) { return mode == control::ControlMode::position; }
-    return mode == control::ControlMode::velocity;
+// 关节域一律使用位置意图 (电机侧位置闭环); 速度域只有底盘轮/摩擦/拨弹.
+[[nodiscard]] constexpr bool uses_position_control(Domain domain, bool = false) noexcept {
+    return is_joint(domain);
+}
+// 模式—域白名单: 关节只接受位置意图, 非关节域只接受速度意图.
+// 协议层和应用层使用同一判据, 不把被接受的模式解释成另一种语义.
+[[nodiscard]] constexpr bool mode_allowed_for(Domain domain, control::ControlMode mode,
+    bool = false) noexcept {
+    return mode == (uses_position_control(domain)
+        ? control::ControlMode::position : control::ControlMode::velocity);
 }
 // 关节几何表索引 (main_yaw=0, fire_yaw=1, pitch=2); 非关节域返回 nullopt 语义的哨兵值.
 [[nodiscard]] constexpr std::size_t joint_index(Domain domain) noexcept {

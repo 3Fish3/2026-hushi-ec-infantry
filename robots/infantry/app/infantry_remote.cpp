@@ -108,6 +108,11 @@ RemoteCommand RemoteMapper::step(const std::optional<input::Dr16Snapshot>& sampl
     ++diagnostics_.frames;
     if (!std::isfinite(dt_s) || dt_s <= 0.0f) { dt_s = 0.0f; }
 
+    // 激励维护组合: 左下 + 右下. 只表示"允许维护会话接管", 本身不使能电机;
+    // 该组合下不产生本地/Jetson 运动请求, 也不进入小陀螺, 避免维护期间底盘自转.
+    const bool maintenance_combo = config_.infantry_controls &&
+        sample->switch_left == drivers::Dr16Switch::down &&
+        sample->switch_right == drivers::Dr16Switch::down;
     // 左拨杆: 上=本地, 中=待机/释放正常来源, 下=Jetson. 遥控自身不产生 Jetson 目标.
     const auto previous_intent = intent_;
     // 步兵左拨杆中挡是键鼠操纵 (旧工程 switch1==3), 同属本地来源; 哨兵中挡仍是待机/释放.
@@ -115,7 +120,9 @@ RemoteCommand RemoteMapper::step(const std::optional<input::Dr16Snapshot>& sampl
     switch (sample->switch_left) {
     case drivers::Dr16Switch::up: intent_ = SourceIntent::local; break;
     case drivers::Dr16Switch::mid: intent_ = mid_intent; break;
-    case drivers::Dr16Switch::down: intent_ = SourceIntent::host; break;
+    case drivers::Dr16Switch::down:
+        intent_ = maintenance_combo ? SourceIntent::standby : SourceIntent::host;
+        break;
     case drivers::Dr16Switch::unknown: intent_ = SourceIntent::none; break;
     }
     if (intent_ != previous_intent) {
@@ -131,7 +138,7 @@ RemoteCommand RemoteMapper::step(const std::optional<input::Dr16Snapshot>& sampl
         ? drivers::Dr16Switch::mid : drivers::Dr16Switch::down);
     out.manual_stop = manual_stop_;
     out.intent = manual_stop_ ? SourceIntent::standby : intent_;
-    out.rotation_gear = sample->switch_right == (config_.infantry_controls
+    out.rotation_gear = !maintenance_combo && sample->switch_right == (config_.infantry_controls
         ? drivers::Dr16Switch::down : drivers::Dr16Switch::up);
 
     const auto previous_layer = layer_;
@@ -216,22 +223,27 @@ RemoteCommand RemoteMapper::step(const std::optional<input::Dr16Snapshot>& sampl
             out.targets.chassis = motion::PlanarTwist{
                 translation_ready ? forward * config_.keyboard_chassis_speed_mps : 0.0f,
                 translation_ready ? left * config_.keyboard_chassis_speed_mps : 0.0f,
-                rotation_ready ? config_.chassis_wz_max_rad_s : 0.0f};
+                rotation_ready ? -config_.chassis_wz_max_rad_s : 0.0f};
             out.chassis_active = true;
         }
     } else {
         mouse_sample_seen_ = false;
         if (local_active && chassis_configured) {
+            // 步兵按用户要求将左杆平移两个方向相对旧版同时反向, 不改变云台与自转方向.
+            const float forward_sign = config_.infantry_controls ? -1.0f : 1.0f;
             out.targets.chassis = motion::PlanarTwist{
-                clampf(sample->axis[3], 1.0f) * config_.chassis_vx_max_mps,
+                forward_sign * clampf(sample->axis[3], 1.0f) * config_.chassis_vx_max_mps,
                 clampf(sample->axis[2], 1.0f) * config_.chassis_vy_max_mps,
-                config_.infantry_controls && out.rotation_gear ? config_.chassis_wz_max_rad_s : 0.0f};
+                config_.infantry_controls && out.rotation_gear ? -config_.chassis_wz_max_rad_s : 0.0f};
             out.chassis_active = true;
         }
     }
 
     const float right_x = sample->axis[0];
     const float right_y = sample->axis[1];
+    // 云台轴向按安装/装配方向取符号; 通道本身不翻转, 避免连摩擦/自转判读一起反.
+    const float gimbal_x = right_x * static_cast<float>(config_.yaw_stick_sign);
+    const float gimbal_y = right_y * static_cast<float>(config_.pitch_stick_sign);
 
     // 已保持的角度目标每周期都要出现在完整快照里: 切层只改变"当前操纵哪个通道",
     // 不能让另一个轴的保持角从快照里消失 —— 完整快照会把缺省域当作撤销, 于是"没操纵的轴
@@ -286,6 +298,7 @@ RemoteCommand RemoteMapper::step(const std::optional<input::Dr16Snapshot>& sampl
         // 轴向与符号由配置的 rad/count 决定; 代码不猜鼠标 X/Y 的方向与比例.
         integrate_mouse(AxisPurpose::main_yaw_direction, Domain::main_yaw, sample->raw.mouse_x,
             config_.mouse_yaw_rad_per_count);
+        // 丝杆 pitch 是位置语义: 鼠标增量同样叠加到保持角上, 与摇杆共用同一目标.
         integrate_mouse(AxisPurpose::pitch_angle, Domain::pitch, sample->raw.mouse_y,
             config_.mouse_pitch_rad_per_count);
     }
@@ -294,7 +307,7 @@ RemoteCommand RemoteMapper::step(const std::optional<input::Dr16Snapshot>& sampl
     case AxisPurpose::main_yaw_direction:
         // 键鼠档的 yaw 由鼠标增量给出, 不再叠加右摇杆.
         if (!keyboard_mode && config_.yaw_rate_max_rad_s > 0.0f) {
-            apply_angle(x_purpose, right_x, Domain::main_yaw, config_.yaw_rate_max_rad_s);
+            apply_angle(x_purpose, gimbal_x, Domain::main_yaw, config_.yaw_rate_max_rad_s);
         }
         break;
     case AxisPurpose::fire_yaw_direction:
@@ -328,10 +341,9 @@ RemoteCommand RemoteMapper::step(const std::optional<input::Dr16Snapshot>& sampl
     }
 
     if (y_purpose == AxisPurpose::pitch_angle) {
-        // 未标定的 pitch 速率 (0) 不生成位置保持目标 (那会是"有效零目标").
-        // 键鼠档的 pitch 由鼠标增量给出, 不再叠加右摇杆.
+        // 位置语义: 右 Y 按目标角速度积分成角度, 回中保持该角; 键鼠档由鼠标增量给出.
         if (!keyboard_mode && config_.pitch_rate_max_rad_s > 0.0f) {
-            apply_angle(y_purpose, right_y, Domain::pitch, config_.pitch_rate_max_rad_s);
+            apply_angle(y_purpose, gimbal_y, Domain::pitch, config_.pitch_rate_max_rad_s);
         }
     } else if (y_purpose == AxisPurpose::trigger) {
         // 拨弹不锁存: 中位立即取消, 负向人工反转.
@@ -348,6 +360,7 @@ RemoteCommand RemoteMapper::step(const std::optional<input::Dr16Snapshot>& sampl
     if (local_active) {
         emit_held_angle(AxisPurpose::main_yaw_direction, Domain::main_yaw);
         emit_held_angle(AxisPurpose::fire_yaw_direction, Domain::fire_yaw);
+        // pitch 与其他关节一致: 每周期都要把保持角写进快照, 否则缺省会被当作撤销.
         emit_held_angle(AxisPurpose::pitch_angle, Domain::pitch);
     }
 

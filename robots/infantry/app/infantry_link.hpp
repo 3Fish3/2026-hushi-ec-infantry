@@ -36,7 +36,8 @@ public:
 private:
     static std::size_t classify(const transport::UartFrame& request) noexcept {
         switch (static_cast<MessageType>(request.type)) {
-        case MessageType::hello: case MessageType::authorize: case MessageType::align: case MessageType::param_write:
+        case MessageType::hello: case MessageType::authorize: case MessageType::align:
+        case MessageType::param_write: case MessageType::sweep:
             return 0;
         case MessageType::targets: case MessageType::permit: return 1;
         case MessageType::status: return request.size == 11 && request.payload[10] == 0 ? 2 : 3;

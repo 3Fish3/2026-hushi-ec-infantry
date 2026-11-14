@@ -4,7 +4,8 @@
 namespace ec::infantry::app {
 namespace {
 // 域槽位: 底盘四轮 / 两 yaw / pitch / 摩擦两轮 / 拨弹 = 10, 另有整车槽 10.
-constexpr std::size_t vehicle_slot = domain_count;
+// 整车槽必须排在所有设备槽之后: DM 槽从 dji_slot_count 开始, 不能与它重叠.
+constexpr std::size_t vehicle_slot = dji_slot_count + dm_slot_count;
 
 [[nodiscard]] bool finite_range(float low, float high) noexcept {
     return std::isfinite(low) && std::isfinite(high) && low <= high;
@@ -76,30 +77,32 @@ ParamStore::ParamStore(const InfantryConfig& config) noexcept {
         if (!config.dji[i].installed) { continue; }
         add_dji(i, config.dji[i].domain, config.dji[i].position_pid.has_value());
     }
-    if (config.dm[0].installed) {
-        const auto slot = dji_slot_count; // DM 使用独立槽位, 避免与 DJI 槽冲突
-        if (config.dm[0].mit_kp) {
-            add(slot, ParamKind::hot, config.dm[0].domain, false, 1, *config.dm[0].mit_kp,
+    for (std::size_t dm_slot = 0; dm_slot < dm_slot_count; ++dm_slot) {
+        const auto& dm = config.dm[dm_slot];
+        if (!dm.installed) { continue; }
+        const auto slot = dji_slot_count + dm_slot; // DM 使用独立槽位, 避免与 DJI 槽冲突
+        if (dm.mit_kp) {
+            add(slot, ParamKind::hot, dm.domain, false, 1, *dm.mit_kp,
                 0.0f, 500.0f, "mit_kp", "1");
         }
-        if (config.dm[0].mit_kd) {
-            add(slot, ParamKind::hot, config.dm[0].domain, false, 2, *config.dm[0].mit_kd,
+        if (dm.mit_kd) {
+            add(slot, ParamKind::hot, dm.domain, false, 2, *dm.mit_kd,
                 0.0f, 5.0f, "mit_kd", "1");
         }
-        add(slot, ParamKind::reference, config.dm[0].domain, false, 3,
-            static_cast<float>(config.dm[0].feedback_ttl.ms), 1.0f, 1000.0f, "feedback_ttl_ms",
+        add(slot, ParamKind::reference, dm.domain, false, 3,
+            static_cast<float>(dm.feedback_ttl.ms), 1.0f, 1000.0f, "feedback_ttl_ms",
             "ms");
         for (std::size_t i = 0; i < joint_slot_count; ++i) {
-            if (config.joints[i].domain != config.dm[0].domain) { continue; }
+            if (config.joints[i].domain != dm.domain) { continue; }
             const auto& joint = config.joints[i];
             if (joint.zero_offset_rad) {
-                add(slot, ParamKind::reference, config.dm[0].domain, false, 20, *joint.zero_offset_rad,
+                add(slot, ParamKind::reference, dm.domain, false, 20, *joint.zero_offset_rad,
                     -3.2f, 3.2f, "zero_offset_rad", "rad");
             }
             if (joint.min_rad && joint.max_rad) {
-                add(slot, ParamKind::reference, config.dm[0].domain, false, 21, *joint.min_rad, -3.2f,
+                add(slot, ParamKind::reference, dm.domain, false, 21, *joint.min_rad, -3.2f,
                     3.2f, "min_rad", "rad");
-                add(slot, ParamKind::reference, config.dm[0].domain, false, 22, *joint.max_rad, -3.2f,
+                add(slot, ParamKind::reference, dm.domain, false, 22, *joint.max_rad, -3.2f,
                     3.2f, "max_rad", "rad");
             }
         }
@@ -125,11 +128,7 @@ ParamStore::ParamStore(const InfantryConfig& config) noexcept {
             0.0f, 5.0f, "gimbal_speed_ki", "");
         add(vehicle_slot, ParamKind::hot, Domain::main_yaw, true, 15, gimbal.speed_pid.kd,
             0.0f, 1.0f, "gimbal_speed_kd", "");
-        // 频率响应整定: 正弦注入幅度/频率; 幅度 0 = 关闭注入.
-        add(vehicle_slot, ParamKind::hot, Domain::main_yaw, true, 16, 0.0f,
-            0.0f, 0.6f, "sweep_amplitude_rad", "rad");
-        add(vehicle_slot, ParamKind::hot, Domain::main_yaw, true, 17, 1.0f,
-            0.05f, 12.0f, "sweep_frequency_hz", "Hz");
+        // 16/17 原无限正弦参数已退役; 有限时长试验只接受 0x49 显式 START.
         // 观测流开关: 0 = 静默, 让参数协议独占 USART1.
         add(vehicle_slot, ParamKind::hot, Domain::main_yaw, true, 18, 1.0f,
             0.0f, 1.0f, "telemetry_enable", "");
@@ -137,8 +136,10 @@ ParamStore::ParamStore(const InfantryConfig& config) noexcept {
             const float max_torque = config.dm[0].limits->torque_max_nm;
             add(vehicle_slot, ParamKind::hot, Domain::main_yaw, true, 19, gimbal.friction_torque_nm,
                 0.0f, max_torque, "gimbal_friction_torque_nm", "N*m");
-            add(vehicle_slot, ParamKind::hot, Domain::main_yaw, true, 20, gimbal.friction_band_nm,
-                0.001f, max_torque, "gimbal_friction_band_nm", "N*m");
+            // 20 号由力矩平滑带改为机械速度平滑带(rad/s), 旧Nm数值不可直接回填.
+            add(vehicle_slot, ParamKind::hot, Domain::main_yaw, true, 20, gimbal.friction_speed_rad_s,
+                0.001f, config.dm[0].limits->velocity_max_rad_s,
+                "gimbal_friction_speed_rad_s", "rad/s");
         }
     }
 }
