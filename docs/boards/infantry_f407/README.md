@@ -1,6 +1,6 @@
 ---
 date: 2026-09-16
-updated: 2026-09-17
+updated: 2026-11-14
 tags: [robomaster, board, infantry, diagnostics]
 ---
 
@@ -66,6 +66,8 @@ GDB 将完整打印出所有外设的实时收发统计！
 ## 3. 板级相关文档导航
 
 - [正式 APP 高频只读采集](APP高频只读采集.md)：USART1／921600，逐控制周期记录、四页在途分页导出与完整性检查；不启动 Sweep 或改变 PID。
+
+- [J4310 主云台航向 PID 离线整定](J4310_Yaw_PID离线整定.md) 使用力矩 Sweep 的 CSV 在电脑上计算候选参数。
 
 - [J4310 Yaw 外齿轮小角度标定](J4310_Yaw外齿轮小角度标定.md)：独立 CAN1/0x005 只读采集配置、人工测量、JSONL/CSV 拟合及未来控制层接入建议。
 

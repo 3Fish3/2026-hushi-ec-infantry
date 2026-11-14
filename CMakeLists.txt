@@ -270,6 +270,9 @@ if(EC_BUILD_TESTS)
         add_test(NAME yaw_gear_fit_contracts COMMAND "${Python3_EXECUTABLE}"
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/yaw_gear_fit_tests.py")
         set_tests_properties(yaw_gear_fit_contracts PROPERTIES TIMEOUT 30)
+        add_test(NAME infantry_yaw_pid_fit_contracts COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/infantry_yaw_pid_fit_tests.py")
+        set_tests_properties(infantry_yaw_pid_fit_contracts PROPERTIES TIMEOUT 60)
         add_test(NAME infantry_raw_calibration_contracts COMMAND "${Python3_EXECUTABLE}"
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/infantry_raw_tests.py" "$<TARGET_FILE:ec_capture_tests>" "$<TARGET_FILE:ec_infantry_replay>")
         set_tests_properties(infantry_raw_calibration_contracts PROPERTIES TIMEOUT 60)
