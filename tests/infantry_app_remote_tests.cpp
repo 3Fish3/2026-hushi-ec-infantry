@@ -582,6 +582,114 @@ void infantry_switch_contracts() {
     CHECK(!command.friction_on && !command.targets.domains[index(Domain::trigger)]);
 }
 
+// 步兵Pitch位置目标: 当前位置接管、单次方向反转、回中保持、STOP/失联重新捕获.
+void infantry_pitch_position_contracts() {
+    constexpr float rate = 46.2f * std::numbers::pi_v<float> / 180.0f;
+    auto config = mapping();
+    config.infantry_controls = true;
+    config.main_yaw_joint_frame = true;
+    config.pitch_rate_max_rad_s = rate;
+    config.yaw_stick_sign = -1;
+    config.pitch_stick_sign = -1;
+    RemoteMapper mapper{config, ec::Lifetime{100}};
+    std::array<std::optional<float>, ec::infantry::app::domain_count> actual{};
+    actual[index(Domain::main_yaw)] = 0.2f;
+    actual[index(Domain::pitch)] = 1.2f;
+    auto sample = Dr16Snapshot{};
+    sample.switch_left = Dr16Switch::up;
+    sample.switch_right = Dr16Switch::up;
+    sample.raw.ch1 = 660;
+    sample.axis[1] = 1.0f;
+    sample.sampled_at = Tick{1000};
+    auto command = mapper.step(sample, Tick{1000}, 0.01f, actual);
+    CHECK(!command.targets.domains[index(Domain::pitch)]); // 未回中不接管
+    sample.raw.ch1 = 0;
+    sample.axis[1] = 0.0f;
+    sample.sampled_at = Tick{1001};
+    command = mapper.step(sample, Tick{1001}, 0.01f, actual);
+    const auto target = [&](const RemoteCommand& c) {
+        const auto t = c.targets.domains[index(Domain::pitch)];
+        CHECK(t.has_value());
+        CHECK(t && t->mode == ControlMode::position);
+        return t ? t->value : -99.0f;
+    };
+    CHECK(std::fabs(target(command) - 1.2f) < 1e-6f); // 不跳到电机编码零点
+    sample.raw.ch1 = 660;
+    sample.axis[1] = 1.0f;
+    sample.axis[0] = 1.0f;
+    sample.sampled_at = Tick{1002};
+    command = mapper.step(sample, Tick{1002}, 0.01f, actual);
+    const float held = 1.2f - rate * 0.01f;
+    CHECK(std::fabs(target(command) - held) < 1e-6f);
+    const auto yaw = command.targets.domains[index(Domain::main_yaw)];
+    CHECK(yaw && yaw->value < 0.2f); // X/Y均只反向一次
+    sample.raw.ch1 = 0;
+    sample.axis[1] = 0.0f;
+    sample.axis[0] = 0.0f;
+    actual[index(Domain::pitch)] = 1.5f;
+    sample.sampled_at = Tick{1003};
+    command = mapper.step(sample, Tick{1003}, 0.01f, actual);
+    CHECK(std::fabs(target(command) - held) < 1e-6f); // 实测偏移不拖着目标走
+    sample.switch_right = Dr16Switch::mid;
+    command = mapper.step(sample, Tick{1004}, 0.01f, actual);
+    CHECK(command.manual_stop && !command.targets.domains[index(Domain::pitch)]);
+    sample.switch_right = Dr16Switch::up;
+    command = mapper.step(sample, Tick{1005}, 0.01f, actual);
+    CHECK(std::fabs(target(command) - 1.5f) < 1e-6f); // STOP后按新实测接管
+    command = mapper.step(std::nullopt, Tick{1200}, 0.01f, actual);
+    CHECK(!command.targets.domains[index(Domain::pitch)]);
+    actual[index(Domain::pitch)] = 0.7f;
+    command = mapper.step(sample, Tick{1201}, 0.01f, actual);
+    CHECK(std::fabs(target(command) - 0.7f) < 1e-6f);
+    auto disabled = config;
+    disabled.pitch_rate_max_rad_s = 0.0f;
+    RemoteMapper bare{disabled, ec::Lifetime{100}};
+    command = bare.step(sample, Tick{1300}, 0.01f, actual);
+    CHECK(!command.targets.domains[index(Domain::pitch)]);
+    // 缺位置反馈时不能伪造启动位置.
+    RemoteMapper missing{config, ec::Lifetime{100}};
+    actual[index(Domain::pitch)].reset();
+    command = missing.step(sample, Tick{1400}, 0.01f, actual);
+    CHECK(!command.targets.domains[index(Domain::pitch)]);
+}
+// 非步兵构型仍是位置语义: 右 Y 按角速率积分成角度目标, 不接受"rad/count 当速度".
+void non_infantry_pitch_stays_position() {
+    auto config = mapping();
+    config.infantry_controls = false;
+    config.pitch_rate_max_rad_s = 1.0f;
+    RemoteMapper mapper{config, ec::Lifetime{100}};
+    std::array<std::optional<float>, ec::infantry::app::domain_count> actual{};
+    actual[index(Domain::main_yaw)] = 0.0f;
+    actual[index(Domain::pitch)] = 0.25f;
+    Dr16Snapshot sample{};
+    sample.switch_left = Dr16Switch::up;
+    sample.switch_right = Dr16Switch::up; // 非步兵: 上挡才是运行
+    sample.ch4 = 0;
+    // 先回中, 建立角度用途与保持角.
+    auto command = mapper.step(sample, Tick{1000}, 0.1f, actual);
+    CHECK(command.layer == Ch4Layer::main_gimbal);
+    CHECK(command.targets.domains[index(Domain::pitch)].has_value());
+    CHECK(command.targets.domains[index(Domain::pitch)]->mode == ControlMode::position);
+    CHECK(std::fabs(command.targets.domains[index(Domain::pitch)]->value - 0.25f) < 1e-6f);
+    // 右 Y 满杆: 1 rad/s × 0.1 s 积分, 仍是位置目标.
+    sample.raw.ch1 = 660;
+    sample.axis[1] = 1.0f;
+    command = mapper.step(sample, Tick{1001}, 0.1f, actual);
+    const auto target = command.targets.domains[index(Domain::pitch)];
+    CHECK(target.has_value());
+    if (target) {
+        CHECK(target->mode == ControlMode::position);
+        CHECK(std::fabs(target->value - 0.35f) < 1e-5f);
+    }
+    // 回中保持目标角, 不产生零速度目标.
+    sample.raw.ch1 = 0;
+    sample.axis[1] = 0.0f;
+    command = mapper.step(sample, Tick{1002}, 0.1f, actual);
+    CHECK(command.targets.domains[index(Domain::pitch)].has_value());
+    CHECK(command.targets.domains[index(Domain::pitch)]->mode == ControlMode::position);
+    CHECK(std::fabs(command.targets.domains[index(Domain::pitch)]->value - 0.35f) < 1e-5f);
+}
+
 // 步兵键鼠: 左拨杆中挡=本地键鼠, 鼠标帧增量只消费一次, WASD 给底盘平移, 不产生发射目标.
 void infantry_keyboard_mouse_contracts() {
     auto config = mapping();
@@ -612,15 +720,17 @@ void infantry_keyboard_mouse_contracts() {
     // 首帧鼠标计数为 0: 首次接管取有效实际姿态作为目标角.
     CHECK(command.targets.domains[index(Domain::main_yaw)].has_value());
     CHECK(std::fabs(command.targets.domains[index(Domain::main_yaw)]->value - 0.1f) < 1e-6f);
+    // Pitch与Yaw都是位置目标, 首次接管捕获实际电机位置.
     CHECK(command.targets.domains[index(Domain::pitch)].has_value());
     CHECK(std::fabs(command.targets.domains[index(Domain::pitch)]->value - 0.2f) < 1e-6f);
 
-    // 新样本: 鼠标 X=100 / Y=-50 只叠加一次.
+    // 新样本: 鼠标X/Y分别叠加位置增量, 每帧只消费一次.
     sample = make(Dr16Switch::mid, Dr16Switch::up, Tick{1001});
     sample.raw.mouse_x = 100;
     sample.raw.mouse_y = -50;
     command = mapper.step(sample, Tick{1001}, 0.001f, actual);
     CHECK(std::fabs(command.targets.domains[index(Domain::main_yaw)]->value - 0.2f) < 1e-5f);
+    CHECK(command.targets.domains[index(Domain::pitch)].has_value());
     CHECK(std::fabs(command.targets.domains[index(Domain::pitch)]->value - 0.15f) < 1e-5f);
     const float yaw_after_one = command.targets.domains[index(Domain::main_yaw)]->value;
 
@@ -728,6 +838,8 @@ void infantry_keyboard_mouse_contracts() {
 
 int main() {
     infantry_switch_contracts();
+    infantry_pitch_position_contracts();
+    non_infantry_pitch_stays_position();
     infantry_keyboard_mouse_contracts();
     raw_frame_contracts();
     layer_contracts();

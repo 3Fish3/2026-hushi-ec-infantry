@@ -84,8 +84,8 @@ public:
     [[nodiscard]] bool assembled() const noexcept { return assembled_; }
     [[nodiscard]] const ConfigReport& report() const noexcept { return report_; }
     [[nodiscard]] drivers::DjiDevice* dji_device(std::size_t slot) noexcept;
-    [[nodiscard]] drivers::DmDevice* dm_device() noexcept {
-        return dm_devices_[0] ? &*dm_devices_[0] : nullptr;
+    [[nodiscard]] drivers::DmDevice* dm_device(std::size_t slot = 0) noexcept {
+        return slot < dm_devices_.size() && dm_devices_[slot] ? &*dm_devices_[slot] : nullptr;
     }
     [[nodiscard]] motion::DjiAxis* axis(Domain domain) noexcept;
     // 收帧路由: 板级/主机把总线上的帧逐帧投递进来; 设备自行按 ID 过滤.
@@ -129,7 +129,7 @@ public:
     // 这里是执行层侧的入口, 读回仍以应用层配置为准 (单一权威).
     [[nodiscard]] bool set_joint_geometry(Domain domain, const JointGeometryConfig& joint) noexcept;
     // DM MIT 增益存在执行层配置里 (设备本身不存增益): 参数事务的生效与读回入口.
-    [[nodiscard]] bool set_dm_mit_gains(float kp, float kd) noexcept;
+    [[nodiscard]] bool set_dm_mit_gains(float kp, float kd, std::size_t slot = 0) noexcept;
     // 世界稳向级联增益在线更新: 只改增益, 不重建对象也不清积分.
     [[nodiscard]] bool set_gimbal_pids(const control::PidConfig& angle,
         const control::PidConfig& speed) noexcept;
@@ -157,8 +157,8 @@ public:
     [[nodiscard]] float gimbal_friction_speed_rad_s() const noexcept {
         return config_.single_gimbal_imu ? config_.single_gimbal_imu->friction_speed_rad_s : 0.0f;
     }
-    [[nodiscard]] float dm_mit_kp() const noexcept { return config_.dm[0].mit_kp.value_or(0.0f); }
-    [[nodiscard]] float dm_mit_kd() const noexcept { return config_.dm[0].mit_kd.value_or(0.0f); }
+    [[nodiscard]] float dm_mit_kp(std::size_t slot = 0) const noexcept { return config_.dm[slot].mit_kp.value_or(0.0f); }
+    [[nodiscard]] float dm_mit_kd(std::size_t slot = 0) const noexcept { return config_.dm[slot].mit_kd.value_or(0.0f); }
     // pitch 的使能/失能请求状态: 用于观测"请求已发"与"设备已确认"的区别.
     [[nodiscard]] bool pitch_enable_requested() const noexcept { return pitch_enable_requested_; }
     [[nodiscard]] bool pitch_disable_requested() const noexcept { return pitch_disable_requested_; }
@@ -191,8 +191,13 @@ private:
     [[nodiscard]] std::optional<float> branch_for(
         Domain domain, float requested_rad, Tick now) noexcept;
     void step_pitch(Tick now, const InfantryApp& app, float dt_s, bool force_stop = false) noexcept;
+    // 非主 yaw 的 DM 槽(丝杆Pitch): 使能后用 MIT 位置目标闭环, 保持遥控积分出的目标角.
+    void step_dm_position(std::size_t dm_slot, Tick now, const InfantryApp& app,
+        bool force_stop = false) noexcept;
     void query_pitch() noexcept;
     [[nodiscard]] bool send_pitch_frame(const transport::CanFrame& frame) noexcept;
+    // 按槽发送: 总线取自该槽配置, 统计不混入 yaw 槽的 pitch_stats_.
+    [[nodiscard]] bool send_dm_frame(std::size_t dm_slot, const transport::CanFrame& frame) noexcept;
     [[nodiscard]] bool pitch_output_fresh() noexcept;
     void send_groups(Tick now) noexcept;
 
@@ -232,6 +237,11 @@ private:
     // 有界重试退避: 撤输出期间至多每个重试间隔发一次 disable, 不因历史失败永久停止尝试.
     bool pitch_disable_attempted_{};
     Tick pitch_last_disable_at_{};
+    // 速度域 DM 槽的使能/失能请求状态(与上面 yaw 槽分开, 不共享 latch).
+    std::array<bool, dm_slot_count> dm_position_enable_requested_{};
+    std::array<bool, dm_slot_count> dm_position_enable_confirmed_{};
+    std::array<bool, dm_slot_count> dm_position_disable_attempted_{};
+    std::array<Tick, dm_slot_count> dm_position_last_disable_at_{};
     // DM 连续角展开状态. mutable: joint_feedback 是只读观测入口, 但展开是状态推进.
     struct DmUnwrap {
         bool started{};

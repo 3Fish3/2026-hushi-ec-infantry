@@ -39,15 +39,27 @@ void test_deployment_config_is_not_invented() {
     }
     CHECK(config.dm[0].installed && config.dm[0].domain == Domain::main_yaw);
     CHECK(config.dm[0].bus == 1 && config.dm[0].can_id == 5 && config.dm[0].master_id == 5);
+    // 丝杆 pitch 实物是达妙 J4310, 接在 CAN1: 命令 0x001 / 反馈 0x011.
+    CHECK(config.dm[1].installed && config.dm[1].domain == Domain::pitch);
+    CHECK(config.dm[1].bus == 1 && config.dm[1].can_id == 0x001 && config.dm[1].master_id == 0x011);
+    // 位置模式: MIT kp>0、kd>0, 目标角由摇杆积分, 松杆后保持.
+    CHECK(!config.dm[1].feedback_only);
+    CHECK(*config.dm[1].mit_kp > 0.0f);
+    CHECK(*config.dm[1].mit_kd > 0.0f);
     // IMU 安装/零偏来自实测; 但绝不能是合成来源.
     CHECK(config.single_gimbal_imu.has_value());
     CHECK(config.single_gimbal_imu->origin == Origin::measured);
     const auto mapping = board::deployment_mapping();
     CHECK(mapping.infantry_controls);
+    CHECK(mapping.yaw_stick_sign == -1);
+    // 原速度路径(-raw)×(-1)是正向, 位置路径+raw保持相同物理方向.
+    CHECK(mapping.pitch_stick_sign == 1);
     // 云台 yaw 已放开摇杆控制; 平移/自转/键鼠量程仍未实测, 必须保持为 0.
     CHECK(mapping.chassis_vx_max_mps == 0 && mapping.chassis_wz_max_rad_s == 0);
     CHECK(mapping.keyboard_chassis_speed_mps == 0);
     CHECK(mapping.yaw_rate_max_rad_s > 0.0f);
+    // 丝杆 pitch 满杆速度量程来自旧工程遥控律: 660 count × 0.07 deg/s = 46.2 deg/s.
+    CHECK(std::fabs(mapping.pitch_rate_max_rad_s - 46.2f * 3.14159265f / 180.0f) < 1e-5f);
     // 软件时序策略必须齐备, 否则应用连"报告缺项"都不成立.
     CHECK(config.timing.control_dt_s == board::app_control_dt_s);
     CHECK(config.timing.target_ttl.valid());
@@ -66,9 +78,12 @@ void test_deployment_audience_rejects_and_grants_nothing() {
     CHECK(report.kind == ConfigKind::real_deployment);
     CHECK(!report.complete);
     CHECK(report.has(ConfigIssue::missing_timing) == false);
-    // yaw 的 IMU 标定已填入 (实测), 底盘四轮齐备; pitch 位置环仍缺.
+    // yaw 的 IMU 标定已填入 (实测), 底盘四轮齐备; 丝杆 pitch 是达妙速度域,
+    // 地址/量程/增益齐备即可执行(仍受IMU限位与反馈在线门禁).
     CHECK(report.domains[domain_index(Domain::main_yaw)] == ConfigState::complete);
-    CHECK(report.domains[domain_index(Domain::pitch)] == ConfigState::incomplete);
+    CHECK(report.domains[domain_index(Domain::pitch)] == ConfigState::complete);
+    CHECK(!config.dji[4].installed);
+    CHECK(report.has(ConfigIssue::missing_gains) == false);
     CHECK(report.domains[domain_index(Domain::fire_yaw)] == ConfigState::unavailable);
     for (std::size_t i = 0; i < chassis_wheel_count; ++i) {
         CHECK(report.domains[i] == ConfigState::complete);
@@ -100,14 +115,15 @@ void test_deployment_summary_matches_config() {
     CHECK(summary.magic == board::deployment_summary_magic);
     CHECK(summary.layout == board::deployment_summary_layout);
     CHECK(summary.kind == static_cast<std::uint32_t>(ConfigKind::real_deployment));
-    CHECK(summary.installed_dji == 5);
-    CHECK(summary.installed_dm == 1);
+    CHECK(summary.installed_dji == 4);
+    CHECK(summary.installed_dm == 2);
+    CHECK(summary.dm_address_1 == (1u | (0x001u << 8) | (0x011u << 16)));
     CHECK(summary.synthetic_values == 0);
     CHECK(summary.unknown_origin_installed == 0);
     // 镜像里声明的容量必须覆盖已验证接线与九 DJI + 一 DM 的应用槽位.
     CHECK(summary.dji_capacity == dji_slot_count);
-    CHECK(summary.harness_dji == 5);
-    CHECK(summary.harness_dm == 1);
+    CHECK(summary.harness_dji == 4);
+    CHECK(summary.harness_dm == 2);
     CHECK(ec_app_deployment_summary.magic == summary.magic);
     CHECK(ec_app_deployment_summary.harness_dji == summary.harness_dji);
 }
@@ -115,7 +131,7 @@ void test_deployment_summary_matches_config() {
 void test_known_harness_is_consistent_with_app_capacity() {
     // 已验证接线是"待确认清单的机器可读形式", 不是配置: 这里只核对它与应用容量、
     // 与各协议支持的设备 ID 范围一致, 不把设备映射到机构.
-    CHECK(board::known_dji_harness.size() == 5);
+    CHECK(board::known_dji_harness.size() == 4);
     for (std::size_t i = 0; i < board::known_dji_harness.size(); ++i) {
         const auto& entry = board::known_dji_harness[i];
         CHECK(entry.bus == 1 || entry.bus == 2);
@@ -133,13 +149,13 @@ void test_known_harness_is_consistent_with_app_capacity() {
                 other_protocol->rx_base + other.device_id != protocol->rx_base + entry.device_id);
         }
     }
-    // DJI 设备: CAN1 四轮, CAN2 pitch; 达妙 yaw 不在这张 DJI 表中.
+    // DJI 设备只有 CAN1 四轮; 云台 yaw 与丝杆 pitch 都是达妙, 不在这张 DJI 表中.
     std::size_t bus1 = 0, bus2 = 0;
     for (const auto& entry : board::known_dji_harness) {
         (entry.bus == 1 ? bus1 : bus2) += 1;
     }
     CHECK(bus1 == 4);
-    CHECK(bus2 == 1);
+    CHECK(bus2 == 0);
 }
 
 void test_control_step_boundaries() {

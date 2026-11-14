@@ -271,7 +271,7 @@ std::size_t InfantryHostSession::handle_targets(std::span<std::uint8_t> response
         const auto value = r.f32();
         const auto age_ms = r.u16();
         if (domain >= domain_count || !mode_allowed_for(static_cast<Domain>(domain),
-                static_cast<control::ControlMode>(mode))) {
+                static_cast<control::ControlMode>(mode), app_->config().infantry_controls)) {
             bad = true;
             continue;
         }
@@ -654,10 +654,11 @@ std::size_t InfantryHostSession::handle_diagnostics(std::span<std::uint8_t> resp
                     velocity = state.velocity_rad_s.value;
                 }
             } else {
-                const auto& c = app_->config().dm[0];
+                const auto dm_slot = i - dji_slot_count;
+                const auto& c = app_->config().dm[dm_slot];
                 domain = static_cast<std::uint8_t>(c.domain); flags = c.installed ? 1u : 0u;
                 bus = c.bus; protocol = 128; device_id = c.can_id.value_or(0); feedback_id = c.master_id.value_or(0);
-                auto* device = executor_ ? executor_->dm_device() : nullptr;
+                auto* device = executor_ ? executor_->dm_device(dm_slot) : nullptr;
                 if (device) {
                     flags |= 128u;
                     const auto state = device->state();

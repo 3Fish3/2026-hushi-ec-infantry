@@ -1,11 +1,13 @@
 // 步兵部署配置契约: 域装配、可启动性、方向参考单一性.
 // 主机测试不驱动电机; 轮向/零位/量程仍为待标定项.
 #include "infantry_config.hpp"
+#include "infantry_app.hpp"
 #include "infantry_kinematics.hpp"
 #include <cassert>
 #include <cmath>
 #include <cstdio>
 #include <numbers>
+#include <limits>
 
 namespace {
 using namespace ec::infantry::app;
@@ -22,14 +24,21 @@ void deployment_is_startable() {
     assert(report.domains[domain_index(Domain::friction_left)] == ConfigState::unavailable);
     assert(report.domains[domain_index(Domain::friction_right)] == ConfigState::unavailable);
     assert(report.domains[domain_index(Domain::trigger)] == ConfigState::unavailable);
-    // 底盘与 yaw 已填齐; yaw 的安装/零偏为实测值, PID 是**待整定初值**而非实测.
+    // 底盘/Yaw齐备; Pitch 走达妙反馈接入阶段, 明确 incomplete 且不取得执行资格.
     for (auto domain : {Domain::chassis_lf, Domain::chassis_rf, Domain::chassis_lb,
                         Domain::chassis_rb, Domain::main_yaw}) {
         assert(report.domains[domain_index(domain)] == ConfigState::complete);
     }
-    // pitch 位置环增益仍无依据, 必须保持缺项.
-    assert(report.domains[domain_index(Domain::pitch)] == ConfigState::incomplete);
-    assert(report.has(ConfigIssue::missing_gains));
+    assert(report.domains[domain_index(Domain::pitch)] == ConfigState::complete);
+    assert(!config.dji[4].installed);
+    assert(config.dm[1].installed && config.dm[1].domain == Domain::pitch);
+    assert(!config.dm[1].feedback_only);
+    // 位置模式: 电机内部 MIT 位置闭环, kp/kd 都必须有值.
+    assert(*config.dm[1].mit_kp > 0.0f && *config.dm[1].mit_kd > 0.0f);
+    assert(config.dm[1].bus == 1 && config.dm[1].can_id == 0x001);
+    assert(config.dm[1].master_id == 0x011);
+    assert(config.single_gimbal_imu->angle_pid.kp == 3.0f);
+    assert(config.single_gimbal_imu->speed_pid.kp == 0.6f);
     // 单云台 IMU 标定必须存在且来源可追溯, 否则 yaw 不能取得执行资格.
     assert(config.single_gimbal_imu.has_value());
     assert(config.single_gimbal_imu->origin == Origin::measured);
@@ -53,19 +62,20 @@ void hardware_mapping() {
     assert(config.dm[0].domain == Domain::main_yaw);
     assert(config.dm[0].bus == 1);
     assert(config.dm[0].can_id == 0x005 && config.dm[0].master_id == 0x005);
-    // 四轮 CAN1 ID1~4, pitch CAN2 ID5.
+    // 四轮CAN1 ID1~4; 丝杆Pitch是达妙, 不占DJI槽.
     for (std::size_t i = 0; i < chassis_wheel_count; ++i) {
         assert(config.dji[i].installed);
         assert(config.dji[i].bus == 1);
         assert(config.dji[i].device_id == i + 1);
         assert(config.dji[i].mode == DjiMode::c620_current);
     }
-    assert(config.dji[4].domain == Domain::pitch);
-    assert(config.dji[4].bus == 2 && config.dji[4].device_id == 5);
-    // 其余 DJI 槽未装配.
-    for (std::size_t i = 5; i < dji_slot_count; ++i) {
+    for (std::size_t i = chassis_wheel_count; i < dji_slot_count; ++i) {
         assert(!config.dji[i].installed);
     }
+    // pitch 达妙: 实物在 CAN1, 命令 0x001 / 反馈 0x011, 与同总线 yaw 的 0x005 不冲突.
+    const auto pitch_device = device_config(config.dm[1]);
+    assert(pitch_device && pitch_device->bus == 1);
+    assert(pitch_device->can_id == 0x001 && pitch_device->master_id == 0x011);
 }
 
 // 方向契约: 底盘 twist 由 yaw 关节角唯一决定, 不依赖 IMU 或单圈相位.
@@ -91,9 +101,76 @@ void single_reference_heading() {
     assert(*joint.max_rad == yaw_window);
     assert(*joint.min_rad == -yaw_window);
 }
+// Pitch 只由电机位置范围限位: 实测量程钳住两端, 越界整包拒绝, 且不再依赖 IMU.
+void pitch_position_limits() {
+    const auto config = infantry_deployment_config();
+    InfantryApp app{config, ConfigAudience::deployment};
+    AppInputs in{};
+    ec::Tick now{1000};
+    in.link.remote_online = true;
+    in.link.switch_left = ec::drivers::Dr16Switch::up;
+    in.link.switch_right = ec::drivers::Dr16Switch::up;
+    in.link.remote_sampled_at = now;
+    in.link.locally_ready = true;
+    const auto i = domain_index(Domain::pitch);
+    const auto& joint = config.joints[joint_index(Domain::pitch)];
+    assert(joint.domain == Domain::pitch);
+    assert(joint.min_rad && joint.max_rad && *joint.min_rad < *joint.max_rad);
+    // 实测两端 1.805333 / 2.875753 rad, 按用户要求各向外扩跨度 10%.
+    assert(std::fabs(*joint.min_rad - 1.698291f) < 1e-5f);
+    assert(std::fabs(*joint.max_rad - 2.982795f) < 1e-5f);
+    assert(*joint.max_rad < config.dm[1].limits->position_max_rad);
+    in.feedback[i].position_rad = {2.3f, now, ec::Validity::valid};
+    in.feedback[i].velocity_rad_s = {0.0f, now, ec::Validity::valid};
+    in.inertial.validity = DomainValidity::valid;
+    in.inertial.roll_pitch_yaw_rad = {{0.0f, 1.0f, 0.0f}, now, ec::Validity::valid};
+    app.update(now, in);
+    const auto request = [&](float position) {
+        TargetSnapshot targets{};
+        targets.domains[i] = DomainSetpoint{ec::control::ControlMode::position, position, 0};
+        assert(app.accept_targets(targets, now, Source::remote) == AcceptResult::accepted);
+        app.update(now, in);
+        return app.snapshot().executions[i];
+    };
+    auto execution = request(2.4f);
+    assert(execution.execute && *execution.adopted_target == 2.4f);
+    // 行程两端内侧仍然可执行: 限位不是硬停, 不做方向偏置.
+    execution = request(*joint.min_rad);
+    assert(execution.execute && *execution.adopted_target == *joint.min_rad);
+    execution = request(*joint.max_rad);
+    assert(execution.execute && *execution.adopted_target == *joint.max_rad);
+    // Pitch 不再消费 IMU: 倾角越界、过期、NaN、整体失效都不应阻止电机位置目标.
+    for (float tilt : {-1.0f, 0.0f, 1.0f}) {
+        in.inertial.roll_pitch_yaw_rad.value[0] = tilt;
+        assert(request(2.4f).execute);
+    }
+    in.inertial.roll_pitch_yaw_rad.sampled_at = ec::Tick{900};
+    assert(request(2.4f).execute);
+    in.inertial.roll_pitch_yaw_rad.value[0] = std::numeric_limits<float>::quiet_NaN();
+    assert(request(2.4f).execute);
+    in.inertial.validity = DomainValidity::invalid;
+    assert(request(2.4f).execute);
+    in.inertial.validity = DomainValidity::valid;
+    in.inertial.roll_pitch_yaw_rad = {{0.0f, 0.0f, 0.0f}, now, ec::Validity::valid};
+    TargetSnapshot bad{};
+    bad.domains[i] = DomainSetpoint{ec::control::ControlMode::velocity, 0.5f, 0};
+    assert(app.accept_targets(bad, now, Source::remote) == AcceptResult::invalid_target);
+    for (float position : {13.0f, *joint.max_rad + 0.05f, *joint.min_rad - 0.05f}) {
+        bad.domains[i] = DomainSetpoint{ec::control::ControlMode::position, position, 0};
+        assert(app.accept_targets(bad, now, Source::remote) == AcceptResult::limit_violation);
+    }
+    in.link.switch_right = ec::drivers::Dr16Switch::down;
+    ++now.ms;
+    in.link.remote_sampled_at = now;
+    app.update(now, in);
+    assert(app.snapshot().permission.manual_stop && !app.snapshot().executions[i].execute);
+    assert(mode_allowed_for(Domain::pitch, ec::control::ControlMode::position, true));
+    assert(!mode_allowed_for(Domain::pitch, ec::control::ControlMode::velocity, true));
+}
 } // namespace
 
 int main() {
+    pitch_position_limits();
     deployment_is_startable();
     hardware_mapping();
     single_reference_heading();

@@ -84,13 +84,13 @@ void set_gain(control::PidConfig& pid, std::uint16_t local, float value) noexcep
         }
         return local == local_current_limit || is_joint_geometry_param(local);
     }
-    if (slot == dji_slot_count) {
-        const auto& dm = app.config().dm[0];
+    if (slot >= dji_slot_count && slot < dji_slot_count + dm_slot_count) {
+        const auto& dm = app.config().dm[slot - dji_slot_count];
         if (!dm.installed) { return false; }
         if (local == 1 || local == 2) { return dm.mit_kp.has_value() && dm.mit_kd.has_value(); }
         return is_joint_geometry_param(local);
     }
-    if (slot == domain_count) {
+    if (slot == dji_slot_count + dm_slot_count) {
         return local == local_vehicle_yaw_alignment || local == local_vehicle_target_ttl ||
             (local >= local_gimbal_angle_kp && local <= local_gimbal_friction_speed);
     }
@@ -172,17 +172,20 @@ ParamWriteResult apply_param(ParamStore& params, InfantryApp& app, InfantryExecu
             // 尚未实现不重建对象的生效路径: 明确上报, 不谎报 effective.
             return ParamWriteResult::unsupported;
         }
-    } else if (slot == dji_slot_count) {
-        const auto& dm = app.config().dm[0];
+    } else if (slot >= dji_slot_count && slot < dji_slot_count + dm_slot_count) {
+        const auto& dm = app.config().dm[slot - dji_slot_count];
         if (!dm.installed) { return ParamWriteResult::not_configured; }
+        // 反馈接入阶段的DM槽没有控制输出, 因此没有可在线生效的MIT/几何参数.
+        if (dm.feedback_only) { return ParamWriteResult::unsupported; }
         if (local == 1 || local == 2) {
             if (executor == nullptr || !dm.mit_kp || !dm.mit_kd) {
                 return ParamWriteResult::unsupported;
             }
-            const float kp = local == 1 ? value : executor->dm_mit_kp();
-            const float kd = local == 2 ? value : executor->dm_mit_kd();
-            if (!executor->set_dm_mit_gains(kp, kd)) { return ParamWriteResult::invalid_value; }
-            actual = local == 1 ? executor->dm_mit_kp() : executor->dm_mit_kd();
+            const auto dm_slot = slot - dji_slot_count;
+            const float kp = local == 1 ? value : executor->dm_mit_kp(dm_slot);
+            const float kd = local == 2 ? value : executor->dm_mit_kd(dm_slot);
+            if (!executor->set_dm_mit_gains(kp, kd, dm_slot)) { return ParamWriteResult::invalid_value; }
+            actual = local == 1 ? executor->dm_mit_kp(dm_slot) : executor->dm_mit_kd(dm_slot);
         } else if (local == local_joint_zero || local == local_joint_min ||
                    local == local_joint_max) {
             JointGeometryConfig next{};
@@ -207,7 +210,7 @@ ParamWriteResult apply_param(ParamStore& params, InfantryApp& app, InfantryExecu
         } else {
             return ParamWriteResult::unsupported; // DM 反馈时限: 同上
         }
-    } else if (slot == domain_count) {
+    } else if (slot == dji_slot_count + dm_slot_count) {
         if (local == local_vehicle_yaw_alignment) {
             if (perception == nullptr) { return ParamWriteResult::unsupported; }
             // 惯性对齐偏移与机械零位是两件事: 这里只改惯性参考与 odom 的偏移.

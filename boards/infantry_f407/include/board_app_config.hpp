@@ -11,21 +11,20 @@
 #include <cstdint>
 
 namespace ec::infantry::board {
-// 接线来自旧步兵工程配置, 不是本镜像的实车验收结果.
+// 装配参考旧步兵配置: 四轮C620在CAN1, 云台yaw与丝杆pitch均为达妙J4310.
 struct HarnessEntry {
     std::uint8_t bus{};
     drivers::DjiMode mode{drivers::DjiMode::c620_current};
     std::uint8_t device_id{};
 };
-inline constexpr std::array<HarnessEntry, 5> known_dji_harness{{
+inline constexpr std::array<HarnessEntry, 4> known_dji_harness{{
     {1, drivers::DjiMode::c620_current, 1},
     {1, drivers::DjiMode::c620_current, 2},
     {1, drivers::DjiMode::c620_current, 3},
     {1, drivers::DjiMode::c620_current, 4},
-    {2, drivers::DjiMode::c620_current, 5},
 }};
-// 单云台达妙 yaw: CAN1 TX/RX 0x005, 参数与实机保存设置仍需核对.
-inline constexpr bool known_dm_harness = true;
+// 两颗达妙都在 CAN1: yaw(0x005/0x005) 与丝杆 pitch(0x001/0x011).
+inline constexpr std::uint32_t known_dm_harness_count = 2;
 
 // 软件时序策略 (不是实测机械/电气参数): 控制周期由板级 1 kHz 任务决定, 遥控/IMU 时效
 // 沿用板级既有口径 (board_inputs.hpp), 目标与上位机链路时效是首版策略默认值, 待与
@@ -67,9 +66,9 @@ struct AppControlStep {
     return {static_cast<float>(elapsed) * 1e-6f, elapsed > app_max_dt_ms * 1000u};
 }
 
-// 本地操纵映射量程/档位阈值 (C06). 这些是**实测项** (拨杆量程与 ch4 档位实测值), 因此
-// 部署配置里全部为 0: 0 不是"保守值"而是"未配置" —— 本地操纵因此不产生运动 (目标量程 0),
-// 直到实测回填. 不在这里拄一个看起来合理的数字冒充已标定.
+// 本地操纵映射量程/档位阈值 (C06). 拨杆量程与 ch4 档位是**实测项**, 未实测时保持为 0:
+// 0 不是"保守值"而是"未配置". 步兵丝杆 pitch 是唯一例外 —— 它沿用旧工程已实测可用的
+// 速度遥控律 (原始计数 → 输出轴角速度), 因此按旧工程数值显式配置, 不是新猜的量程.
 [[nodiscard]] constexpr app::RemoteMappingConfig deployment_mapping() noexcept {
     app::RemoteMappingConfig mapping{};
     mapping.infantry_controls = true;
@@ -77,6 +76,13 @@ struct AppControlStep {
     // 云台 yaw 目标角速度上限 (rad/s): 由旧工程摇杆映射换算而来, 仍属待整定项.
     // 摇杆在本地"主云台"层时以此速率积分目标航向, 回中即保持.
     mapping.yaw_rate_max_rad_s = 1.5f;
+    // 位置目标变化率上限沿用46.2 deg/s(电机输出轴), 普通/小陀螺共用线性映射.
+    // 它不是枪管俯仰角速度, 丝杆比例未标定前不做两者换算.
+    mapping.pitch_rate_max_rad_s = 46.2f * 3.14159265358979323846f / 180.0f;
+    // 保留用户要求反向后的物理操纵方向; 旧速度路径自带负号, 现已删除,
+    // 所以位置路径Pitch取+1才能与旧路径的(-raw)×(-1)同向, Yaw仍取-1.
+    mapping.yaw_stick_sign = -1;
+    mapping.pitch_stick_sign = 1;
     // 底盘平移/自转量程保持为 0: 未实测, 不产生平移与自转目标.
     return mapping;
 }
@@ -112,17 +118,18 @@ struct DeploymentSummary {
     // 只报装配数量时, "底盘挂错总线"这类镜像照样能通过审计; 地址进摘要才能离线核对.
     std::uint32_t dji_address[deployment_summary_dji_slots];
     std::uint32_t dm_address;        // bus | can_id<<8 | master_id<<16
+    std::uint32_t dm_address_1;      // 第二颗达妙, 布局同上; 0表示未装配
 };
 inline constexpr std::uint32_t deployment_summary_magic = 0x45434150u; // "ECAP"
-inline constexpr std::uint32_t deployment_summary_layout = 2; // 2: 增补每槽地址表
+inline constexpr std::uint32_t deployment_summary_layout = 3; // 3: 增补第二颗达妙地址
 
 [[nodiscard]] constexpr DeploymentSummary summarize(const app::InfantryConfig& config) noexcept {
     DeploymentSummary summary{deployment_summary_magic, deployment_summary_layout,
         static_cast<std::uint32_t>(config.kind),
         static_cast<std::uint32_t>(config.dji.size()),
         static_cast<std::uint32_t>(config.dm.size()), 0, 0, 0, 0,
-        static_cast<std::uint32_t>(known_dji_harness.size()), known_dm_harness ? 1u : 0u,
-        {}, 0}; // 地址表与 DM 地址先清零, 下面按实际装配填写
+        static_cast<std::uint32_t>(known_dji_harness.size()), known_dm_harness_count,
+        {}, 0, 0}; // 地址表与 DM 地址先清零, 下面按实际装配填写
     std::uint32_t slot_index = 0;
     for (const auto& slot : config.dji) {
         const std::uint32_t index = slot_index++;
@@ -141,10 +148,16 @@ inline constexpr std::uint32_t deployment_summary_layout = 2; // 2: 增补每槽
         if (slot.origin == app::Origin::synthetic) { ++summary.synthetic_values; }
         if (slot.origin == app::Origin::unspecified) { ++summary.unknown_origin_installed; }
     }
-    if (!config.dm.empty() && config.dm[0].installed) {
-        summary.dm_address = static_cast<std::uint32_t>(config.dm[0].bus) |
-            (static_cast<std::uint32_t>(config.dm[0].can_id.value_or(0)) << 8) |
-            (static_cast<std::uint32_t>(config.dm[0].master_id.value_or(0)) << 16);
+    // 槽0=yaw(0x005/0x005), 槽1=pitch(0x001/0x011); 编码为 bus | can_id<<8 | master_id<<16,
+    // 高位 bit30 标记槽1, 保持单字段兼容.
+    for (std::size_t i = 0; i < config.dm.size(); ++i) {
+        const auto& slot = config.dm[i];
+        if (!slot.installed) { continue; }
+        const auto address = static_cast<std::uint32_t>(slot.bus) |
+            (static_cast<std::uint32_t>(slot.can_id.value_or(0)) << 8) |
+            (static_cast<std::uint32_t>(slot.master_id.value_or(0)) << 16);
+        if (i == 0) { summary.dm_address = address; }
+        else { summary.dm_address_1 = address; }
     }
     return summary;
 }
@@ -154,8 +167,9 @@ static_assert(deployment_summary.magic == deployment_summary_magic);
 static_assert(deployment_summary.kind == static_cast<std::uint32_t>(app::ConfigKind::real_deployment),
     "部署配置不得声明为合成夹具或未配置");
 static_assert(deployment_summary.synthetic_values == 0, "部署配置不得含合成来源的值");
-static_assert(deployment_summary.installed_dji == 5 && deployment_summary.installed_dm == 1,
-    "步兵装配必须为五 DJI 加一 DM");
+static_assert(deployment_summary.installed_dji == 4 && deployment_summary.installed_dm == 2,
+    "步兵装配必须为四 DJI 加两 DM");
+static_assert(deployment_summary.dm_address_1 != 0, "第二颗达妙地址必须写入摘要");
 static_assert(deployment_summary.dji_capacity >= known_dji_harness.size(),
     "已验证接线条目数不得超过配置可声明的 DJI 槽数");
 } // 命名空间 ec::infantry::board

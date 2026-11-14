@@ -4,7 +4,8 @@
 namespace ec::infantry::app {
 namespace {
 // 域槽位: 底盘四轮 / 两 yaw / pitch / 摩擦两轮 / 拨弹 = 10, 另有整车槽 10.
-constexpr std::size_t vehicle_slot = domain_count;
+// 整车槽必须排在所有设备槽之后: DM 槽从 dji_slot_count 开始, 不能与它重叠.
+constexpr std::size_t vehicle_slot = dji_slot_count + dm_slot_count;
 
 [[nodiscard]] bool finite_range(float low, float high) noexcept {
     return std::isfinite(low) && std::isfinite(high) && low <= high;
@@ -76,30 +77,32 @@ ParamStore::ParamStore(const InfantryConfig& config) noexcept {
         if (!config.dji[i].installed) { continue; }
         add_dji(i, config.dji[i].domain, config.dji[i].position_pid.has_value());
     }
-    if (config.dm[0].installed) {
-        const auto slot = dji_slot_count; // DM 使用独立槽位, 避免与 DJI 槽冲突
-        if (config.dm[0].mit_kp) {
-            add(slot, ParamKind::hot, config.dm[0].domain, false, 1, *config.dm[0].mit_kp,
+    for (std::size_t dm_slot = 0; dm_slot < dm_slot_count; ++dm_slot) {
+        const auto& dm = config.dm[dm_slot];
+        if (!dm.installed) { continue; }
+        const auto slot = dji_slot_count + dm_slot; // DM 使用独立槽位, 避免与 DJI 槽冲突
+        if (dm.mit_kp) {
+            add(slot, ParamKind::hot, dm.domain, false, 1, *dm.mit_kp,
                 0.0f, 500.0f, "mit_kp", "1");
         }
-        if (config.dm[0].mit_kd) {
-            add(slot, ParamKind::hot, config.dm[0].domain, false, 2, *config.dm[0].mit_kd,
+        if (dm.mit_kd) {
+            add(slot, ParamKind::hot, dm.domain, false, 2, *dm.mit_kd,
                 0.0f, 5.0f, "mit_kd", "1");
         }
-        add(slot, ParamKind::reference, config.dm[0].domain, false, 3,
-            static_cast<float>(config.dm[0].feedback_ttl.ms), 1.0f, 1000.0f, "feedback_ttl_ms",
+        add(slot, ParamKind::reference, dm.domain, false, 3,
+            static_cast<float>(dm.feedback_ttl.ms), 1.0f, 1000.0f, "feedback_ttl_ms",
             "ms");
         for (std::size_t i = 0; i < joint_slot_count; ++i) {
-            if (config.joints[i].domain != config.dm[0].domain) { continue; }
+            if (config.joints[i].domain != dm.domain) { continue; }
             const auto& joint = config.joints[i];
             if (joint.zero_offset_rad) {
-                add(slot, ParamKind::reference, config.dm[0].domain, false, 20, *joint.zero_offset_rad,
+                add(slot, ParamKind::reference, dm.domain, false, 20, *joint.zero_offset_rad,
                     -3.2f, 3.2f, "zero_offset_rad", "rad");
             }
             if (joint.min_rad && joint.max_rad) {
-                add(slot, ParamKind::reference, config.dm[0].domain, false, 21, *joint.min_rad, -3.2f,
+                add(slot, ParamKind::reference, dm.domain, false, 21, *joint.min_rad, -3.2f,
                     3.2f, "min_rad", "rad");
-                add(slot, ParamKind::reference, config.dm[0].domain, false, 22, *joint.max_rad, -3.2f,
+                add(slot, ParamKind::reference, dm.domain, false, 22, *joint.max_rad, -3.2f,
                     3.2f, "max_rad", "rad");
             }
         }

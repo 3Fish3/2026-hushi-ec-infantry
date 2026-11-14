@@ -79,7 +79,7 @@ ec::infantry::app::RemoteMappingConfig mapping() {
     config.chassis_vy_max_mps = 1.0f;
     config.chassis_wz_max_rad_s = 2.0f;
     config.yaw_rate_max_rad_s = 1.0f;
-    config.pitch_rate_max_rad_s = 1.0f;
+    config.pitch_rate_max_rad_s = 46.2f * pi / 180.0f;
     config.ch4 = ec::infantry::app::Ch4LayerConfig{0, 300, -300, 50, true};
     return config;
 }
@@ -114,11 +114,12 @@ struct Rig {
     float world_gyro_z{};
     std::optional<ec::drivers::Dr16Sample> pending{};
 
-    explicit Rig(InfantryConfig value = test_infantry_config())
+    explicit Rig(InfantryConfig value = test_infantry_config(),
+        ec::infantry::app::RemoteMappingConfig controls = mapping())
         : config(std::move(value)), app(config, ConfigAudience::offline_test),
           executor(config, ConfigAudience::offline_test, bus1, bus2),
           perception(config, ConfigAudience::offline_test),
-          cycle(app, executor, perception, mapping(), config.timing.remote_ttl) {
+          cycle(app, executor, perception, controls, config.timing.remote_ttl) {
         const std::uint8_t priming = 0;
         stream.push({&priming, 1});
         static_cast<void>(stream.on_idle());
@@ -321,7 +322,9 @@ void missing_calibration_does_not_drive_yaw() {
     }
     CHECK(rig.app.report().domains[index(Domain::main_yaw)] == ec::infantry::app::ConfigState::incomplete);
     CHECK(!rig.app.snapshot().executions[index(Domain::main_yaw)].execute);
-    CHECK(rig.executor.stats().dm_command_sent == 0);
+    // 两颗DM各自执行, 本用例只要求未标定的Yaw不提交力矩.
+    CHECK(!rig.executor.main_yaw_stats().torque_submitted);
+    CHECK(!rig.executor.pitch_enable_confirmed());
 }
 
 // 枪管沿机体 −Y, 绕机体 Z 轴转动时水平航向变化率应等于该角速度;
@@ -431,8 +434,8 @@ void friction_parameters_apply() {
     using namespace ec::infantry::app;
     Rig rig;
     ParamStore params{rig.config};
-    const auto amplitude = param_id(domain_count, 19);
-    const auto speed = param_id(domain_count, 20);
+    const auto amplitude = param_id(dji_slot_count + dm_slot_count, 19);
+    const auto speed = param_id(dji_slot_count + dm_slot_count, 20);
     CHECK(params.find(amplitude));
     CHECK(params.find(speed));
     CHECK(std::string_view{params.find(speed)->name} == "gimbal_friction_speed_rad_s");
@@ -527,7 +530,7 @@ void friction_assist_preserves_torque_contract() {
             ParamStore params{config};
             const auto write = [&](float value) {
                 CHECK(apply_param(params, assisted.app, &assisted.executor, &assisted.perception,
-                    &assisted.cycle, param_id(domain_count, 19), value, false) == ParamWriteResult::accepted);
+                    &assisted.cycle, param_id(dji_slot_count + dm_slot_count, 19), value, false) == ParamWriteResult::accepted);
             };
             write(0.15f);
             bool saw_positive = false, saw_negative = false, saw_zero = false;
@@ -717,13 +720,13 @@ void parameter_writes_do_not_interrupt_sweep() {
     // 原16/17参数必须明确拒绝, 不能写参数后在拨挡时自动起振.
     for (auto local : {16, 17}) {
         CHECK(apply_param(params, rig.app, &rig.executor, &rig.perception, &rig.cycle,
-            param_id(domain_count, local), 0.2f, false) == ParamWriteResult::unknown_param);
+            param_id(dji_slot_count + dm_slot_count, local), 0.2f, false) == ParamWriteResult::unknown_param);
     }
     const std::array<std::pair<std::uint16_t, float>, 5> writes{{
         {18, 0.0f}, {13, 1.2f}, {19, 0.15f}, {20, 0.1f}, {18, 1.0f}}};
     for (const auto& [local, value] : writes) {
         CHECK(apply_param(params, rig.app, &rig.executor, &rig.perception, &rig.cycle,
-            param_id(domain_count, local), value, false) == ParamWriteResult::accepted);
+            param_id(dji_slot_count + dm_slot_count, local), value, false) == ParamWriteResult::accepted);
         for (int i = 0; i < 100; ++i) {
             rig.feed(FrameSpec{{0, 0, 0, 0}, 0, Dr16Switch::down, Dr16Switch::down});
             rig.cycle_once();
@@ -1011,9 +1014,141 @@ void maintenance_target_sine_runs() {
     }
 }
 
+// 真实DR16/Cycle/执行器/MIT链: 捕获位置、方向、回中保持与失效撤输出.
+void pitch_outside_range_recovers() {
+    using namespace ec::infantry::app;
+    for (bool below : {true, false}) {
+        Rig rig{};
+        const auto i = index(Domain::pitch);
+        const auto& range = rig.config.joints[joint_index(Domain::pitch)];
+        const float boundary = below ? *range.min_rad : *range.max_rad;
+        rig.plant.dm_pitch.position_rad = boundary + (below ? -0.06f : 0.06f);
+        auto frame = FrameSpec{{0, 0, 0, 0}, 0, Dr16Switch::up, Dr16Switch::mid};
+        const auto step = [&] { rig.feed(frame); rig.cycle_once(); };
+        for (int n = 0; n < 5; ++n) { step(); }
+        CHECK(!rig.app.snapshot().executions[i].execute);
+        frame.switch_right = Dr16Switch::up;
+        for (int n = 0; n < 8; ++n) { step(); }
+        const auto& execution = rig.app.snapshot().executions[i];
+        CHECK(execution.execute && execution.adopted_target);
+        CHECK(execution.adopted_target && std::fabs(*execution.adopted_target - boundary) < 1e-6f);
+        const auto sent = rig.bus1.last_with_id(0x001);
+        CHECK(sent);
+        const auto mit = sent ? ec::infantry::host::decode_dm_mit_command(*sent, *rig.config.dm[1].limits) : std::nullopt;
+        CHECK(mit && std::fabs(mit->position_rad - boundary) < 0.001f);
+        frame.switch_right = Dr16Switch::mid;
+        step();
+        CHECK(!rig.app.snapshot().executions[i].execute);
+    }
+}
+
+void pitch_dm_position_control() {
+    using namespace ec::infantry::app;
+    auto controls = mapping();
+    controls.yaw_stick_sign = -1;
+    controls.pitch_stick_sign = 1; // 与旧速度路径反向后的物理方向一致
+    Rig rig{test_infantry_config(), controls};
+    const auto i = index(Domain::pitch);
+    CHECK(!rig.config.dji[4].installed && rig.executor.dm_device(1));
+    rig.plant.dm_pitch.position_rad = 2.3f;
+    const auto& limits = *rig.config.dm[1].limits;
+    const float pq = 2.0f * limits.position_max_rad / 65535.0f;
+    const float vq = 2.0f * limits.velocity_max_rad_s / 4095.0f;
+    const float tq = 2.0f * limits.torque_max_nm / 4095.0f;
+    std::optional<ec::infantry::host::DmMitDecoded> last;
+    bool enabled_requested = false, disabled_requested = false;
+    const auto scan = [&] {
+        for (const auto& sent : rig.bus1.frames) {
+            if (sent.id != 0x001) { continue; }
+            const bool action = std::all_of(sent.data.begin(), sent.data.begin()+7,
+                [](auto b) { return b == 0xff; });
+            if (action) {
+                enabled_requested |= sent.data[7] == 0xfc;
+                disabled_requested |= sent.data[7] == 0xfd;
+                continue;
+            }
+            CHECK(enabled_requested);
+            last = ec::infantry::host::decode_dm_mit_command(sent, limits);
+            CHECK(last);
+            CHECK(last && std::fabs(last->velocity_rad_s) <= vq);
+            CHECK(last && std::fabs(last->torque_nm) <= tq);
+            CHECK(last && last->kp > 0.0f && last->kd > 0.0f);
+        }
+    };
+    auto frame = FrameSpec{{0, 0, 0, 0}, 0, Dr16Switch::up, Dr16Switch::up};
+    const auto step = [&] { rig.feed(frame); rig.cycle_once(); scan(); };
+    for (int n = 0; n < 6; ++n) { step(); }
+    CHECK(last);
+    CHECK(last && std::fabs(last->position_rad - 2.3f) <= 2*pq);
+    CHECK(rig.app.snapshot().executions[i].mode == ec::control::ControlMode::position);
+    const auto captured = rig.app.target(Domain::pitch)->value;
+    frame.ch[1] = 660;
+    for (int n = 0; n < 20; ++n) { step(); }
+    const auto held = rig.app.target(Domain::pitch)->value;
+    CHECK(held > captured);
+    CHECK(std::fabs(held - captured - controls.pitch_rate_max_rad_s * 0.02f) < 2e-5f);
+    frame.ch[1] = 0;
+    rig.plant.dm_pitch.position_rad = 2.5f;
+    for (int n = 0; n < 8; ++n) { step(); }
+    CHECK(std::fabs(rig.app.target(Domain::pitch)->value - held) < 1e-6f);
+    CHECK(last && std::fabs(last->position_rad - held) <= 2*pq);
+    // 电机侧软件限位: 长推杆只能到达关节上限, 电机收到的位置不越界, 记录值同步被钳住.
+    const auto& range = rig.config.joints[joint_index(Domain::pitch)];
+    CHECK(range.min_rad && range.max_rad);
+    // 满杆 0.806 rad/s × 1 ms ≈ 0.8 mrad/步, 确保往返均达到软件边界.
+    frame.ch[1] = 660;
+    for (int n = 0; n < 3000; ++n) { step(); }
+    CHECK(std::fabs(rig.app.target(Domain::pitch)->value - *range.max_rad) <= 2*pq);
+    CHECK(last && std::fabs(last->position_rad - *range.max_rad) <= 2*pq);
+    CHECK(rig.app.snapshot().executions[i].execute);
+    frame.ch[1] = -660;
+    for (int n = 0; n < 3000; ++n) { step(); }
+    CHECK(std::fabs(rig.app.target(Domain::pitch)->value - *range.min_rad) <= 2*pq);
+    CHECK(last && std::fabs(last->position_rad - *range.min_rad) <= 2*pq);
+    CHECK(rig.app.snapshot().executions[i].execute);
+    // STOP撤输出; 重新接管捕获当前实测, 不恢复旧保持角.
+    frame.switch_right = Dr16Switch::mid;
+    step();
+    CHECK(disabled_requested && !rig.app.snapshot().executions[i].execute);
+    rig.plant.dm_pitch.position_rad = 2.0f;
+    frame.switch_right = Dr16Switch::up;
+    frame.ch[1] = 0;
+    for (int n = 0; n < 6; ++n) { step(); }
+    CHECK(std::fabs(rig.app.target(Domain::pitch)->value - 2.0f) <= 2*pq);
+    // 电机失联时撤输出, 恢复后不沿用失联前目标.
+    rig.plant.dm_pitch.emitting = false;
+    for (int n = 0; n < 25; ++n) { step(); }
+    CHECK(!rig.app.snapshot().executions[i].execute);
+    rig.plant.dm_pitch.position_rad = 1.9f;
+    rig.plant.dm_pitch.emitting = true;
+    for (int n = 0; n < 6; ++n) { step(); }
+    CHECK(rig.app.target(Domain::pitch));
+    CHECK(std::fabs(rig.app.target(Domain::pitch)->value - 1.9f) <= 2*pq);
+    // 遥控失联撤输出; 恢复重新接管.
+    for (int n = 0; n < 125; ++n) { rig.cycle_once(); }
+    CHECK(!rig.app.snapshot().executions[i].execute);
+    for (int n = 0; n < 6; ++n) { step(); }
+    // 电机位置闭环不再消费IMU: IMU失联不撤Pitch输出, 不能用它掩盖电机限位之外的失效.
+    rig.imu_enabled = false;
+    for (int n = 0; n < 60; ++n) { step(); }
+    CHECK(rig.app.snapshot().executions[i].execute);
+    CHECK(last && std::fabs(last->position_rad - rig.app.target(Domain::pitch)->value) <= 2*pq);
+    // Pitch在线调参只落DM1, 不写错Yaw的DM0.
+    frame.switch_right = Dr16Switch::mid;
+    step();
+    ParamStore params{rig.config};
+    const float yaw_kp = rig.executor.dm_mit_kp(0);
+    CHECK(apply_param(params, rig.app, &rig.executor, &rig.perception, &rig.cycle,
+        param_id(dji_slot_count+1, 1), 12.0f, true) == ParamWriteResult::accepted);
+    CHECK(rig.executor.dm_mit_kp(1) == 12.0f);
+    CHECK(rig.executor.dm_mit_kp(0) == yaw_kp);
+}
+
 } // namespace
 
 int main() {
+    pitch_outside_range_recovers();
+    pitch_dm_position_control();
     m2_requires_physical_maintenance();
     m2_real_execution_stops_and_rearms();
     maintenance_target_sine_runs();

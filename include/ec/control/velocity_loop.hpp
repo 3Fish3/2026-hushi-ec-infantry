@@ -14,6 +14,7 @@ struct VelocityLoopConfig {
     // 复位后首个样本直接采用测量值. 旧驱动按"每帧"从 0 起滤波 (0.1*old + 0.9*new),
     // 首帧只有 90% 测量值, 此处有意不继承该首帧行为.
     float feedback_alpha{};
+    float error_deadband_rad_s{}; // 速度误差不超过此值时输出零, 0为关闭
 };
 
 // 只表达本次计算可用性, 不是控制模式或整车安全状态机.

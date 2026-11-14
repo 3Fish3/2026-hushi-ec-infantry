@@ -239,6 +239,9 @@ RemoteCommand RemoteMapper::step(const std::optional<input::Dr16Snapshot>& sampl
 
     const float right_x = sample->axis[0];
     const float right_y = sample->axis[1];
+    // 云台轴向按安装/装配方向取符号; 通道本身不翻转, 避免连摩擦/自转判读一起反.
+    const float gimbal_x = right_x * static_cast<float>(config_.yaw_stick_sign);
+    const float gimbal_y = right_y * static_cast<float>(config_.pitch_stick_sign);
 
     // 已保持的角度目标每周期都要出现在完整快照里: 切层只改变"当前操纵哪个通道",
     // 不能让另一个轴的保持角从快照里消失 —— 完整快照会把缺省域当作撤销, 于是"没操纵的轴
@@ -293,6 +296,7 @@ RemoteCommand RemoteMapper::step(const std::optional<input::Dr16Snapshot>& sampl
         // 轴向与符号由配置的 rad/count 决定; 代码不猜鼠标 X/Y 的方向与比例.
         integrate_mouse(AxisPurpose::main_yaw_direction, Domain::main_yaw, sample->raw.mouse_x,
             config_.mouse_yaw_rad_per_count);
+        // 丝杆 pitch 是位置语义: 鼠标增量同样叠加到保持角上, 与摇杆共用同一目标.
         integrate_mouse(AxisPurpose::pitch_angle, Domain::pitch, sample->raw.mouse_y,
             config_.mouse_pitch_rad_per_count);
     }
@@ -301,7 +305,7 @@ RemoteCommand RemoteMapper::step(const std::optional<input::Dr16Snapshot>& sampl
     case AxisPurpose::main_yaw_direction:
         // 键鼠档的 yaw 由鼠标增量给出, 不再叠加右摇杆.
         if (!keyboard_mode && config_.yaw_rate_max_rad_s > 0.0f) {
-            apply_angle(x_purpose, right_x, Domain::main_yaw, config_.yaw_rate_max_rad_s);
+            apply_angle(x_purpose, gimbal_x, Domain::main_yaw, config_.yaw_rate_max_rad_s);
         }
         break;
     case AxisPurpose::fire_yaw_direction:
@@ -335,10 +339,9 @@ RemoteCommand RemoteMapper::step(const std::optional<input::Dr16Snapshot>& sampl
     }
 
     if (y_purpose == AxisPurpose::pitch_angle) {
-        // 未标定的 pitch 速率 (0) 不生成位置保持目标 (那会是"有效零目标").
-        // 键鼠档的 pitch 由鼠标增量给出, 不再叠加右摇杆.
+        // 位置语义: 右 Y 按目标角速度积分成角度, 回中保持该角; 键鼠档由鼠标增量给出.
         if (!keyboard_mode && config_.pitch_rate_max_rad_s > 0.0f) {
-            apply_angle(y_purpose, right_y, Domain::pitch, config_.pitch_rate_max_rad_s);
+            apply_angle(y_purpose, gimbal_y, Domain::pitch, config_.pitch_rate_max_rad_s);
         }
     } else if (y_purpose == AxisPurpose::trigger) {
         // 拨弹不锁存: 中位立即取消, 负向人工反转.
@@ -355,6 +358,7 @@ RemoteCommand RemoteMapper::step(const std::optional<input::Dr16Snapshot>& sampl
     if (local_active) {
         emit_held_angle(AxisPurpose::main_yaw_direction, Domain::main_yaw);
         emit_held_angle(AxisPurpose::fire_yaw_direction, Domain::fire_yaw);
+        // pitch 与其他关节一致: 每周期都要把保持角写进快照, 否则缺省会被当作撤销.
         emit_held_angle(AxisPurpose::pitch_angle, Domain::pitch);
     }
 

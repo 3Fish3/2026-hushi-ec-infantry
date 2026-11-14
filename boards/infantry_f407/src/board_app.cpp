@@ -246,10 +246,11 @@ void publish_observation(Tick now) noexcept {
             entry.temperature_c = static_cast<std::int8_t>(*state.rotor.value.temperature_c);
         }
     }
-    auto& dm_entry = observation.dm[0];
-    dm_entry = EcAppDeviceObservation{};
-    if (application->config().dm[0].installed) {
-        if (auto* device = executor->dm_device()) {
+    for (std::size_t i = 0; i < app::dm_slot_count; ++i) {
+        auto& dm_entry = observation.dm[i];
+        dm_entry = EcAppDeviceObservation{};
+        if (!application->config().dm[i].installed) { continue; }
+        if (auto* device = executor->dm_device(i)) {
             const auto state = device->state();
             dm_entry.installed = 1;
             dm_entry.bus = device->config().bus;

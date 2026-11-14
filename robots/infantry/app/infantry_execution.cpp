@@ -138,7 +138,7 @@ InfantryExecutor::InfantryExecutor(const InfantryConfig& config, ConfigAudience 
         }
         // 原始设备与控制器分开: 已知设备仍占真实槽位, 未配完本轴控制/几何时明确发零.
         if (report_.domains[domain_index(slot.domain)] != ConfigState::complete) { continue; }
-        if (is_joint(slot.domain)) {
+        if (uses_position_control(slot.domain, config_.infantry_controls)) {
             const auto& joint = config_.joints[joint_index(slot.domain)];
             if (joint.min_rad && joint.max_rad && joint.zero_offset_rad) {
                 axes_[domain_index(slot.domain)].emplace(motion::DjiAxisConfig{
@@ -149,7 +149,7 @@ InfantryExecutor::InfantryExecutor(const InfantryConfig& config, ConfigAudience 
                     config_.timing.target_ttl,
                     slot.max_axis_velocity_rad_s.value_or(0.0f),
                     static_cast<float>(groups_[group_slot].timing.max_step_us) * 1e-6f,
-                    0.0f}, *dji_devices_[i]);
+                    slot.feedback_alpha, slot.velocity_deadband_rad_s}, *dji_devices_[i]);
                 if (!axes_[domain_index(slot.domain)]->configured()) { return; }
             }
         } else {
@@ -161,7 +161,7 @@ InfantryExecutor::InfantryExecutor(const InfantryConfig& config, ConfigAudience 
                 config_.timing.target_ttl,
                 slot.max_axis_velocity_rad_s.value_or(0.0f),
                 static_cast<float>(groups_[group_slot].timing.max_step_us) * 1e-6f,
-                0.0f}, *dji_devices_[i]);
+                slot.feedback_alpha, slot.velocity_deadband_rad_s}, *dji_devices_[i]);
             if (!axes_[domain_index(slot.domain)]->configured()) { return; }
         }
     }
@@ -195,7 +195,7 @@ InfantryExecutor::InfantryExecutor(const InfantryConfig& config, ConfigAudience 
             dm_devices_[i].emplace(*device_config);
             if (!dm_devices_[i]->configured()) { return; }
         }
-        pitch_stats_.stop_only = !dm_devices_[i];
+        if (i == 0) { pitch_stats_.stop_only = !dm_devices_[i]; }
     }
     // 复用框架已有的布局校验 (DM 内部唯一性 + DJI/DM 同总线 ID 含义冲突),
     // 不在这里维护第二套规则. 地址不明/冲突仍整体拒绝, 运动数据缺项只撤相关输出.
@@ -245,7 +245,7 @@ void InfantryExecutor::route(std::uint8_t bus, const transport::CanFrame& frame,
 
 bool InfantryExecutor::align_reference(Domain domain, float joint_rad, Tick now) noexcept {
     const auto index = domain_index(domain);
-    if (!is_joint(domain) || !runtime_[index] || !runtime_[index]->device || !std::isfinite(joint_rad)) { return false; }
+    if (!uses_position_control(domain, config_.infantry_controls) || !runtime_[index] || !runtime_[index]->device || !std::isfinite(joint_rad)) { return false; }
     const auto& joint = config_.joints[joint_index(domain)];
     if (!joint.min_rad || !joint.max_rad || !joint.zero_offset_rad ||
         joint_rad < *joint.min_rad || joint_rad > *joint.max_rad) { return false; }
@@ -307,24 +307,29 @@ DomainFeedback InfantryExecutor::joint_feedback(Domain domain, Tick now) const n
     DomainFeedback out{};
     const auto index = domain_index(domain);
     // DM 域: 设备原生绝对位置 → 关节角 (减零位偏移), 与健康判定同一坐标.
-    if (dm_devices_[0] && config_.dm[0].installed && config_.dm[0].domain == domain) {
-        const auto state = dm_devices_[0]->state();
-        if (state.feedback.fresh_at(now, config_.dm[0].feedback_ttl)) {
+    // 速度域 DM (步兵丝杆Pitch) 只发布速度: 电机输出轴圈数不是枪管俯仰角.
+    for (std::size_t i = 0; i < dm_slot_count; ++i) {
+        if (!dm_devices_[i] || !config_.dm[i].installed || config_.dm[i].domain != domain) { continue; }
+        const auto state = dm_devices_[i]->state();
+        if (!state.feedback.fresh_at(now, config_.dm[i].feedback_ttl)) { return out; }
+        if (uses_position_control(domain, config_.infantry_controls)) {
             if (const auto offset = config_.joints[joint_index(domain)].zero_offset_rad) {
-                out.position_rad = Sample<float>{dm_continuous_position(
-                        state.feedback.value.position_rad) - *offset,
+                // 只有单槽 (yaw) 有连续展开状态; 位置控制的 DM 域按当前槽量程展开.
+                const float raw = i == 0 ? dm_continuous_position(state.feedback.value.position_rad)
+                                         : state.feedback.value.position_rad;
+                out.position_rad = Sample<float>{raw - *offset,
                     state.feedback.sampled_at, Validity::valid};
             }
-            out.velocity_rad_s = Sample<float>{state.feedback.value.velocity_rad_s,
-                state.feedback.sampled_at, Validity::valid};
         }
+        out.velocity_rad_s = Sample<float>{state.feedback.value.velocity_rad_s,
+            state.feedback.sampled_at, Validity::valid};
         return out;
     }
     if (!runtime_[index] || !runtime_[index]->device) { return out; }
     // 关节位置只在该域位置参考有效时才有意义: 参考失效 (零位/范围改变、设备重启、
     // 反馈丢失) 后设备侧样本可能仍是旧参考下的有效值, 不能把它当成本周期的关节视图 ——
     // 否则 Mapper 会先把旧坐标捕获成"新目标", 健康判定随后才按新参考重建.
-    if (is_joint(domain) && !references_[index].valid) { return out; }
+    if (uses_position_control(domain, config_.infantry_controls) && !references_[index].valid) { return out; }
     const auto state = runtime_[index]->device->state(now);
     out.position_rad = state.position_rad;
     out.velocity_rad_s = state.velocity_rad_s;
@@ -362,7 +367,8 @@ FaultInputs InfantryExecutor::health(Tick now) noexcept {
         if (groups_[runtime->group].stats.stop_only) { health_.execution_rejected[i] = true; }
         if (!runtime->device) { continue; }
         const auto domain = static_cast<Domain>(i);
-        const auto* joint_config = is_joint(domain) ? &config_.joints[joint_index(domain)] : nullptr;
+        const auto* joint_config = uses_position_control(domain, config_.infantry_controls)
+            ? &config_.joints[joint_index(domain)] : nullptr;
         const bool joint_ready = joint_config && joint_config->min_rad && joint_config->max_rad && joint_config->zero_offset_rad;
         const bool expected = axes_[i].has_value() || joint_ready;
         const auto ttl = runtime->device->config().feedback_ttl;
@@ -374,7 +380,7 @@ FaultInputs InfantryExecutor::health(Tick now) noexcept {
             // 必需反馈不新鲜: 从未收到与运行后失联都不满足执行条件 (依赖集合必须知道),
             // 但两者在观测上要能区分 —— 关节域按参考失效, 从未收到时同时标反馈缺失.
             if (expected || ever_online) {
-                if (is_joint(domain)) {
+                if (uses_position_control(domain, config_.infantry_controls)) {
                     health_.reference_lost[i] = ever_online;
                     health_.feedback_lost[i] = !ever_online;
                 } else { health_.feedback_lost[i] = true; }
@@ -419,31 +425,49 @@ FaultInputs InfantryExecutor::health(Tick now) noexcept {
             health_.reference_lost[i] = true;
         }
     }
-    // DM 域 (pitch): 原生绝对位置反馈, 不做单圈恢复.
-    if (dm_devices_[0] && config_.dm[0].installed) {
-        auto& device = *dm_devices_[0];
-        const auto index = domain_index(config_.dm[0].domain);
-        const auto& joint = config_.joints[joint_index(config_.dm[0].domain)];
-        const bool expected = joint.min_rad && joint.max_rad && joint.zero_offset_rad;
+    // DM 域: 原生绝对位置反馈, 不做单圈恢复.
+    for (std::size_t i = 0; i < dm_slot_count; ++i) {
+        if (!dm_devices_[i] || !config_.dm[i].installed) { continue; }
+        auto& device = *dm_devices_[i];
+        const auto domain = config_.dm[i].domain;
+        const auto index = domain_index(domain);
+        const auto& joint = config_.joints[joint_index(domain)];
+        const bool position_control = uses_position_control(domain, config_.infantry_controls);
+        // 速度域只需要速度反馈; 位置域还需要可唯一换算的关节参考.
+        const bool expected = position_control && joint.min_rad && joint.max_rad && joint.zero_offset_rad;
         const bool ever_online = device.state().feedback.validity != Validity::unknown;
         const bool online = device.online(now);
         if (device.faulted(now)) { health_.device_fault[index] = true; }
         if (!online) {
             // 同上: 从未收到与运行后失联都不满足执行条件, 但区分二者.
-            if (expected || ever_online) {
-                health_.reference_lost[index] = ever_online;
-                health_.feedback_lost[index] = !ever_online;
+            if (position_control) {
+                if (expected || ever_online) {
+                    health_.reference_lost[index] = ever_online;
+                    health_.feedback_lost[index] = !ever_online;
+                }
+                references_[index].valid = false;
+            } else {
+                health_.feedback_lost[index] = true;
             }
+            if (i == 0) { reset_dm_unwrap(); } // 失联后重新收到反馈是新的坐标起点
+            continue;
+        }
+        if (!position_control) {
+            // 速度域: 反馈在线即满足; 不建立、也不要求机械位置参考.
             references_[index].valid = false;
-            reset_dm_unwrap(); // 失联后重新收到反馈是新的坐标起点
-        } else if (joint.zero_offset_rad) {
+            continue;
+        }
+        if (joint.zero_offset_rad) {
             // 与 joint_feedback 用同一条连续展开, 否则健康判定和应用看到的角度不是同一个.
-            const float value = dm_continuous_position(device.state().feedback.value.position_rad) -
-                *joint.zero_offset_rad;
+            const float raw = i == 0 ? dm_continuous_position(device.state().feedback.value.position_rad)
+                                     : device.state().feedback.value.position_rad;
+            const float value = raw - *joint.zero_offset_rad;
             references_[index] = JointReference{true, value};
             // 滑环步兵 yaw 的 ±PMAX 是编码窗口, 不是机械限位; 连续展开角可跨多圈.
-            const bool continuous_yaw = config_.infantry_controls && config_.dm[0].domain == Domain::main_yaw;
-            if (!continuous_yaw && joint.min_rad && joint.max_rad &&
+            const bool continuous_yaw = config_.infantry_controls && domain == Domain::main_yaw;
+            // 步兵 Pitch 在软件范围外允许向范围内返回; 电调自身故障仍独立撤输出.
+            const bool pitch_recovery = config_.infantry_controls && domain == Domain::pitch;
+            if (!continuous_yaw && !pitch_recovery && joint.min_rad && joint.max_rad &&
                 (value < *joint.min_rad || value > *joint.max_rad)) {
                 health_.device_fault[index] = true;
             }
@@ -477,13 +501,13 @@ bool InfantryExecutor::set_joint_geometry(
     return true;
 }
 
-bool InfantryExecutor::set_dm_mit_gains(float kp, float kd) noexcept {
-    if (!config_.dm[0].installed || !config_.dm[0].mit_kp || !config_.dm[0].mit_kd) {
-        return false;
-    }
-    if (!std::isfinite(kp) || !std::isfinite(kd) || kp < 0.0f || kd < 0.0f) { return false; }
-    config_.dm[0].mit_kp = kp;
-    config_.dm[0].mit_kd = kd;
+bool InfantryExecutor::set_dm_mit_gains(float kp, float kd, std::size_t slot) noexcept {
+    if (slot >= dm_slot_count || !config_.dm[slot].installed || !config_.dm[slot].mit_kp ||
+        !config_.dm[slot].mit_kd) { return false; }
+    if (!std::isfinite(kp) || !std::isfinite(kd) || kp < 0.0f || kd < 0.0f ||
+        kp > drivers::dm_kp_max || kd > drivers::dm_kd_max) { return false; }
+    config_.dm[slot].mit_kp = kp;
+    config_.dm[slot].mit_kd = kd;
     return true;
 }
 
@@ -664,6 +688,70 @@ bool InfantryExecutor::release_sweep_after_stop(Tick now, const InfantryApp& app
     if (!feedback.fresh_at(now, config_.dm[0].feedback_ttl) ||
         feedback.value.status != drivers::DmStatus::disabled) { return false; }
     return sweep_engine_.clear_after_stop();
+}
+
+bool InfantryExecutor::send_dm_frame(std::size_t dm_slot, const transport::CanFrame& frame) noexcept {
+    if (dm_slot >= dm_slot_count || !config_.dm[dm_slot].installed) { return false; }
+    const auto result = bus_for(config_.dm[dm_slot].bus).try_send(frame);
+    const bool accepted = result == transport::SendResult::accepted;
+    if (accepted) { ++stats_.dm_command_sent; }
+    else { ++stats_.dm_tx_error; }
+    return accepted;
+}
+
+void InfantryExecutor::step_dm_position(std::size_t dm_slot, Tick now, const InfantryApp& app,
+    bool force_stop) noexcept {
+    if (dm_slot >= dm_devices_.size()) { return; }
+    const auto& slot = config_.dm[dm_slot];
+    if (!slot.installed || slot.feedback_only || !dm_devices_[dm_slot]) { return; }
+    auto& device = *dm_devices_[dm_slot];
+    const auto& execution = app.snapshot().executions[domain_index(slot.domain)];
+    const bool ready = execution.mode == control::ControlMode::position && execution.adopted_target &&
+        device.online(now) && !device.faulted(now);
+    if (execution.execute && !ready) { rejected_[domain_index(slot.domain)] = true; }
+    if (!execution.execute || force_stop || !ready) {
+        // 撤输出 = 显式 disable; 已观测 Disabled 时不再重复发送.
+        if (device.online(now) && !device.faulted(now) && !device.enabled(now)) {
+            dm_position_enable_requested_[dm_slot] = false;
+            dm_position_enable_confirmed_[dm_slot] = false;
+            dm_position_disable_attempted_[dm_slot] = false;
+            return;
+        }
+        dm_position_enable_requested_[dm_slot] = false;
+        dm_position_enable_confirmed_[dm_slot] = false;
+        if (dm_position_disable_attempted_[dm_slot] &&
+            fresh(now, dm_position_last_disable_at_[dm_slot], Lifetime{pitch_disable_retry_ms})) {
+            return;
+        }
+        dm_position_disable_attempted_[dm_slot] = true;
+        dm_position_last_disable_at_[dm_slot] = now;
+        if (const auto frame = device.encode_disable()) { (void)send_dm_frame(dm_slot, *frame); }
+        return;
+    }
+    dm_position_disable_attempted_[dm_slot] = false;
+    if (!dm_position_enable_requested_[dm_slot]) {
+        const auto frame = device.encode_enable();
+        if (!frame) { return; }
+        if (send_dm_frame(dm_slot, *frame)) { dm_position_enable_requested_[dm_slot] = true; }
+        return; // 使能与MIT目标不在同一周期发出
+    }
+    // 只有新鲜反馈确认 Enabled 才下发MIT, 不用"已发使能帧"冒充已使能.
+    dm_position_enable_confirmed_[dm_slot] = device.enabled(now);
+    if (!dm_position_enable_confirmed_[dm_slot]) { return; }
+    if (execution.mode != control::ControlMode::position || !execution.adopted_target) { return; }
+    // MIT只发送应用实际采用的位置, 不能绕过应用层读取原始请求.
+    const auto& joint = config_.joints[joint_index(slot.domain)];
+    const drivers::DmMitCommand command{
+        *execution.adopted_target + joint.zero_offset_rad.value_or(0.0f), 0.0f,
+        slot.mit_kp.value_or(0.0f), slot.mit_kd.value_or(0.0f), 0.0f};
+    const auto frame = device.encode_mit(command);
+    if (!frame) {
+        rejected_[domain_index(slot.domain)] = true;
+        return;
+    }
+    if (!send_dm_frame(dm_slot, *frame)) {
+        rejected_[domain_index(slot.domain)] = true;
+    }
 }
 
 void InfantryExecutor::step_pitch(Tick now, const InfantryApp& app, float dt_s, bool force_stop) noexcept {
@@ -1054,6 +1142,18 @@ void InfantryExecutor::step(Tick now, float dt_s, const InfantryApp& app,
             rejected_[dm_domain] = true;
         }
         step_pitch(now, app, scheduled.dt_s, scheduled.invalid_time || bad_dt);
+    }
+    // Pitch与Yaw共用DM调度时序, 但独立使能状态; STOP边沿不等待下一次调度.
+    for (std::size_t i = 1; i < dm_slot_count; ++i) {
+        const auto& slot = config_.dm[i];
+        if (!slot.installed || slot.feedback_only) { continue; }
+        const auto domain_index_now = domain_index(slot.domain);
+        const bool stop_position =
+            was_executing_[domain_index_now] && !app.snapshot().executions[domain_index_now].execute;
+        was_executing_[domain_index_now] = app.snapshot().executions[domain_index_now].execute;
+        if (scheduled.due || scheduled.invalid_time || bad_dt || stop_position) {
+            step_dm_position(i, now, app, scheduled.invalid_time || bad_dt || stop_position);
+        }
     }
     if (clock_) {
         stats_.tx_last_us = clock_().us - tx_start.us;

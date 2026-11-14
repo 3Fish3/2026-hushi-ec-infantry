@@ -48,10 +48,11 @@ void InfantryCycle::refresh_feedback(Tick now) noexcept {
         entry.position_rad = state.position_rad;
         entry.velocity_rad_s = state.velocity_rad_s;
     }
-    if (app_.config().dm[0].installed) {
+    for (std::size_t i = 0; i < dm_slot_count; ++i) {
+        if (!app_.config().dm[i].installed) { continue; }
         // DM 域: 与健康判定/Mapper 共用同一个关节视图 (已减零位偏移),
         // 不能向应用回传设备原生角 —— 非零零位时两者不是同一个坐标.
-        const auto domain = app_.config().dm[0].domain;
+        const auto domain = app_.config().dm[i].domain;
         inputs_.feedback[domain_index(domain)] = executor_.joint_feedback(domain, now);
     }
 }
@@ -99,6 +100,8 @@ CycleOutcome InfantryCycle::control(const CycleInputs& inputs) noexcept {
             joint_rad[i] = feedback.position_rad.value;
         }
     }
+    // Pitch掉线/参考失效后旧保持角不能复活, 恢复时按当前位置重新捕获.
+    if (!joint_rad[domain_index(Domain::pitch)]) { mapper_.drop_held_angle(Domain::pitch); }
     const auto main_index = domain_index(Domain::main_yaw);
     const auto main_joint = joint_rad[main_index];
     // 惯性驱动 (哨兵): main yaw 没有绝对编码器, 本地操纵捕获的是局部惯性方向,
@@ -152,7 +155,7 @@ CycleOutcome InfantryCycle::control(const CycleInputs& inputs) noexcept {
     for (const auto domain : {Domain::fire_yaw, Domain::pitch}) {
         auto& target = command.targets.domains[domain_index(domain)];
         const auto& range = app_.joint_geometry(domain);
-        if (target && range.min_rad && range.max_rad) {
+        if (target && target->mode == control::ControlMode::position && range.min_rad && range.max_rad) {
             target->value = std::clamp(target->value, *range.min_rad, *range.max_rad);
             mapper_.limit_held_angle(domain, target->value);
         }
@@ -254,6 +257,14 @@ CycleOutcome InfantryCycle::control(const CycleInputs& inputs) noexcept {
 
     // 5. 应用仲裁: 来源选择/人工停止/故障影响/目标生命周期都在应用层完成.
     app_.update(inputs.now, inputs_);
+    const auto& pitch = app_.snapshot().executions[domain_index(Domain::pitch)];
+    if (pitch.execute && pitch.adopted_target && joint_rad[domain_index(Domain::pitch)]) {
+        const auto& range = app_.joint_geometry(Domain::pitch);
+        const float position = *joint_rad[domain_index(Domain::pitch)];
+        if (range.min_rad && range.max_rad && (position < *range.min_rad || position > *range.max_rad)) {
+            mapper_.limit_held_angle(Domain::pitch, *pitch.adopted_target);
+        }
+    }
     // 右中挡是明确退出试验的操作; 失联后的停止锁存不能代替新鲜物理停止帧.
     // 清锁存仍要求执行层确认Disabled, 此周期继续停止, 下次本地接管重新捕获航向.
     if (app_.config().infantry_controls && snapshot && snapshot->switch_right == drivers::Dr16Switch::mid &&

@@ -68,7 +68,8 @@ enum class AlignKind : std::uint8_t {
     inertial_alignment = 1, // MCU 惯性参考与上位机 odom 的偏移 (只对主 yaw 有意义)
 };
 
-inline constexpr std::size_t protocol_payload_max = 240;
+// 与 UART 帧载荷上限一致; 两达妙槽后设备页需要 12+11×22=254 B.
+inline constexpr std::size_t protocol_payload_max = 256;
 // 参数读回按页返回: 一页最多容纳的条目数, 由载荷上限与单条目 16 字节决定.
 inline constexpr std::size_t param_page_max = (protocol_payload_max - 12) / 16;
 inline constexpr std::size_t identity_length = 16;

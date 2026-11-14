@@ -74,8 +74,8 @@ struct Rig {
     std::uint16_t frame_seq{};
     std::uint32_t command_seq{};
 
-    explicit Rig(Lifetime link_ttl = {})
-        : config(synthetic_config()), app(config, ConfigAudience::offline_test),
+    explicit Rig(Lifetime link_ttl = {}, const InfantryConfig& value = synthetic_config())
+        : config(value), app(config, ConfigAudience::offline_test),
           exec(config, ConfigAudience::offline_test, bus1, bus2),
           perception(config, ConfigAudience::offline_test), params(config),
           session(app, params, &exec, &perception, link_ttl) {
@@ -1245,6 +1245,33 @@ void reply_mux_contracts() {
     CHECK(rig.app.stats().cycles == cycles+100 && mux.diagnostics()[9] == 1);
 }
 
+// 与生产相同的UART分帧/会话路径: 丝杆Pitch是电机位置域, 只接受position, 拒绝velocity.
+void infantry_pitch_mode_contracts() {
+    Rig rig{{}, infantry_deployment_config()};
+    // App输入已由Cycle规范化: mid/mid对应物理左下+右下维护组合.
+    rig.inputs.link.switch_left = drivers::Dr16Switch::mid;
+    rig.inputs.link.switch_right = drivers::Dr16Switch::mid;
+    rig.cycle();
+    static_cast<void>(rig.hello());
+    CHECK(result_of(rig.authorize(true, Source::maintenance, rig.next_seq())) == ResultCode::accepted);
+    // 目标角必须落在实车实测行程内, 越界整包拒绝; 关节范围不从 0 开始, 不能用 0.5.
+    const auto& range = rig.app.joint_geometry(Domain::pitch);
+    CHECK(range.min_rad && range.max_rad);
+    const float inside = 0.5f * (*range.min_rad + *range.max_rad);
+    const std::array points{Point{Domain::pitch, control::ControlMode::position, inside, 0}};
+    CHECK(result_of(rig.targets(rig.next_seq(), rig.app.config_epoch(),
+        rig.app.reference_epoch(), points)) == ResultCode::accepted);
+    const auto target = rig.app.target(Domain::pitch);
+    CHECK(target.has_value());
+    if (target) { CHECK(target->mode == control::ControlMode::position); }
+    const std::array outside{Point{Domain::pitch, control::ControlMode::position, 0.5f, 0}};
+    CHECK(result_of(rig.targets(rig.next_seq(), rig.app.config_epoch(),
+        rig.app.reference_epoch(), outside)) == ResultCode::invalid_value);
+    const std::array speeds{Point{Domain::pitch, control::ControlMode::velocity, 0.0f, 0}};
+    CHECK(result_of(rig.targets(rig.next_seq(), rig.app.config_epoch(),
+        rig.app.reference_epoch(), speeds)) == ResultCode::invalid_value);
+}
+
 void sweep_message_contracts() {
     Rig rig;
     static_cast<void>(rig.hello());
@@ -1324,6 +1351,7 @@ int main(int argc, char** argv) {
     mutation_stream_and_frames_contracts();
     reply_mux_contracts();
     diagnostics_contracts();
+    infantry_pitch_mode_contracts();
     sweep_message_contracts();
     if (failures != 0) {
         std::cout << failures << " contract(s) failed\n";

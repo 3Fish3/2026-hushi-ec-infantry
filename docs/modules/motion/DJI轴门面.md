@@ -39,6 +39,7 @@ tags: [robomaster, module, axis, control]
 | `max_velocity_rad_s` | 位置环内部速度上限, 也是速度目标量程 |
 | `max_dt_s` | 单周期最大步长, 超限拒绝而不是"按最大步长算" |
 | `feedback_alpha` | 透传给速度环的反馈一阶低通系数, 0 表示不滤波 |
+| `velocity_deadband_rad_s` | 透传给速度环的误差死区, 有限且 ≥0; 默认0关闭, 启用时带内含边界输出零, 不撤销授权 |
 
 `direction` 与 `rotor_per_axis` 只在设备配置里维护一份, 轴不重复持有, 避免两处传动参数同时生效.
 

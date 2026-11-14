@@ -58,6 +58,8 @@ struct DjiSlot {
     Lifetime feedback_ttl{};                     // 反馈有效期; 无效表示尚未配置
     std::optional<control::PidConfig> velocity_pid{};
     std::optional<control::PidConfig> position_pid{}; // 连续/位置语义轴才需要
+    float feedback_alpha{};                 // 速度反馈低通的上一样本权重
+    float velocity_deadband_rad_s{};        // 速度误差死区; 0为不启用
 };
 
 // 一个 DM 设备槽. MIT 映射量程 (PMAX/VMAX/TMAX) 没有通用默认值, 必须显式给出.
@@ -72,6 +74,8 @@ struct DmSlot {
     Lifetime feedback_ttl{};
     std::optional<float> mit_kp{};
     std::optional<float> mit_kd{};
+    // 只接入反馈、不产生控制输出的阶段标志: 该槽不做使能/MIT/disable, 域保持不可执行.
+    bool feedback_only{};
 };
 
 // 底盘几何: 每项都来自机械记录, 缺项时保持 nullopt.
@@ -266,12 +270,7 @@ struct ConfigReport {
     config.dji[3] = dji(Domain::chassis_rb, 1, drivers::DjiMode::c620_current, 4, 19.0f, 1,
         20.0f, 16384.0f, 50.0f, 100.0f, false, wheel_speed, wheel_position);
 
-    // pitch: M3508 + C620, CAN2 ID5. 旧工程使用速度环; 当前框架关节域要求位置环.
-    // 暂无可核实的位置环参数, 保持缺项而不是用猜测增益赋予执行资格.
-    config.dji[4] = dji(Domain::pitch, 2, drivers::DjiMode::c620_current, 5, 19.0f, 1,
-        20.0f, 16384.0f, 30.0f, 100.0f, false,
-        control::PidConfig{4.5f, 0.0f, 0.0f, 0.0f, -1.0f, 1.0f}, wheel_position);
-
+    // 丝杆Pitch实物为达妙J4310: DJI槽不再装配, 由下面的 dm[1] 承担.
     // yaw: 达妙 J4310, CAN1 TX/RX 0x005, MIT 闭环.
     // 旧工程用 IMU 做角度/速度反馈; 新框架 DmSlot 只表达 MIT 通道,
     // 角度参考由 joint zero_offset_rad 与 ContinuousYawAngle 提供.
@@ -287,6 +286,21 @@ struct ConfigReport {
     yaw.mit_kp = 30.0f;
     yaw.mit_kd = 2.0f;
     config.dm[0] = yaw;
+
+    // pitch: 达妙 J4310, 实物接在 CAN1, 命令 0x001 / 反馈 0x011.
+    // 位置模式: 目标角由遥控积分, 电机内部 MIT 位置闭环 (kp/kd 均为待调值).
+    DmSlot pitch{};
+    pitch.domain = Domain::pitch;
+    pitch.installed = true;
+    pitch.origin = Origin::user_confirmed;
+    pitch.bus = 1;
+    pitch.can_id = 0x001;
+    pitch.master_id = 0x011;
+    pitch.limits = drivers::DmMitLimits{12.5f, 30.0f, 10.0f};
+    pitch.feedback_ttl = Lifetime{20};
+    pitch.mit_kp = 20.0f;
+    pitch.mit_kd = 0.5f;
+    config.dm[1] = pitch;
 
     // 底盘几何: 400 mm 轴距/轮距, 轮半径 60 mm, 云台居中.
     // 轮位按 +X 前 / +Y 左; 滚动方向取切向. gain 为待标定项, 暂用 +1.
@@ -310,7 +324,11 @@ struct ConfigReport {
     // fire_yaw 未装配: 域名必须显式写成本域, 不能留默认 main_yaw, 否则触发 domain_duplicated.
     // 缺项使其保持 incomplete; 由于该域 unavailable, combine 后仍为 unavailable, 不阻断启动.
     config.joints[1] = JointGeometryConfig{Domain::fire_yaw, std::nullopt, std::nullopt, std::nullopt};
-    config.joints[2] = JointGeometryConfig{Domain::pitch, 0.0f, -1.0f, 0.5f};
+    // 位置模式: 关节角就是达妙输出轴角 (零偏 0). 机械行程取 2026-11-14 实车两端实测:
+    // 最低位 1.805333 rad, 最高位 2.875753 rad, 跨度 1.070420 rad; 两端各向外扩 10%
+    // (0.107042 rad), 得 1.698291 / 2.982795 rad. 外扩范围超出已测端点, 尚未验证机械行程.
+    // 这两端是人工到位后只读记录的电编码值, 不是标定后的枪管俯仰角; 改机械或换电机后必须重测.
+    config.joints[2] = JointGeometryConfig{Domain::pitch, 0.0f, 1.698291f, 2.982795f};
 
     // 时序: 1 ms 控制周期, 反馈 20 ms 时效 (旧工程 daemon 10 tick ≈ 10 ms 量级).
     config.timing.control_dt_s = 0.001f;
@@ -339,13 +357,10 @@ struct ConfigReport {
         gimbal.barrel_axis = {0.0f, -1.0f, 0.0f};
         gimbal.gyro_bias_sensor = {-0.000251f, 0.001645f, 0.002211f};
         gimbal.min_projection_squared = 0.02f; // 枪管偏离水平超过约 82° 即判不可用
-        // PID 是**待整定参数**, 不是实测结果. 取保守小增益 + 低力矩上限:
-        // 外环 rad->rad/s, 内环 rad/s->N·m, 力矩上限远低于 DM 的 ±10 N·m.
-        // 必须先在物理急停下做单轴低力矩验证, 再逐步增加.
-        gimbal.angle_pid = {2.0f, 0.0f, 0.0f, 0.0f, -6.0f, 6.0f};
-        // ±0.5 N·m 实测在 0.17 rad 偏差下已饱和且几乎拉不动, 说明方向正确但能力不足.
-        // 放宽到 ±2.0 N·m 继续验证补偿能力; 仍低于 DM 的 ±10 N·m 协议上限.
-        gimbal.speed_pid = {0.35f, 0.0f, 0.0f, 0.0f, -2.0f, 2.0f};
+        // 2026-11-14用户确认关闭补偿后的遥控手感; 固化3/0.6, 保留既有限幅.
+        // 外环rad->rad/s, 内环rad/s->N·m; 不将手感确认当作全工况验收.
+        gimbal.angle_pid = {3.0f, 0.0f, 0.0f, 0.0f, -6.0f, 6.0f};
+        gimbal.speed_pid = {0.6f, 0.0f, 0.0f, 0.0f, -2.0f, 2.0f};
         config.single_gimbal_imu = gimbal;
     }
     config.serial = std::nullopt;

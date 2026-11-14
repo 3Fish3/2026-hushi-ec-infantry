@@ -19,6 +19,7 @@ struct DjiAxisConfig {
     float max_velocity_rad_s{};
     float max_dt_s{};
     float feedback_alpha{}; // 透传给速度环的反馈低通
+    float velocity_deadband_rad_s{}; // 透传给速度环的误差死区
 };
 
 // 只表达本次计算可用性, 不是控制模式或整车安全状态机.
