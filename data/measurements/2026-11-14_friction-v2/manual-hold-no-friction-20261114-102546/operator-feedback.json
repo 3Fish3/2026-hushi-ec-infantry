@@ -1,0 +1,26 @@
+{
+  "classification": "operator_feedback_with_parameter_readback",
+  "date": "2026-11-14",
+  "operator_report": "user confirmed the current remote-control parameters were acceptable after friction compensation was off",
+  "parameters": {
+    "0xa0a": 3.0,
+    "0xa0b": 0.0,
+    "0xa0c": 0.0,
+    "0xa0d": 0.6000000238418579,
+    "0xa0e": 0.0,
+    "0xa0f": 0.0,
+    "0xa13": 0.0,
+    "0xa14": 0.05000000074505806
+  },
+  "source_defaults_unchanged": {
+    "angle_kp": 2.0,
+    "speed_kp": 0.35,
+    "friction_nm": 0.0
+  },
+  "limitations": [
+    "no quantitative remote recenter-and-hold capture was taken",
+    "prior friction-enabled setting was reported to oscillate on recenter",
+    "controller restarted before the friction-off setup; this setup restored only the PID gains while friction was already zero",
+    "readbacks are historical evidence, not a current live state"
+  ]
+}

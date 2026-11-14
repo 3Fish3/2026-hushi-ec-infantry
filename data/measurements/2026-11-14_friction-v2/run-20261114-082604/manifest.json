@@ -1,0 +1,55 @@
+{
+  "classification": "real_hardware",
+  "firmware_elf_sha256": "d57dcb07da6d7d706a1f700ba438c86156a57cdaf97b4046ea1c16e1db132863",
+  "firmware_model": "mechanical-speed-friction-v2",
+  "parameters": {
+    "angle_kp": 2,
+    "angle_kd": 0,
+    "speed_kp": 0.6,
+    "friction_nm": 0.25,
+    "friction_speed_rad_s": 0.05
+  },
+  "trial": {
+    "frequency_hz": 0.3,
+    "amplitude_rad": 0.1,
+    "cycles": 6
+  },
+  "scope": "single-frequency repeat with no parameter write; no final PID/stability-margin conclusion",
+  "files": [
+    {
+      "path": "trial.csv",
+      "bytes": 1251194,
+      "sha256": "66767b0bf9adc5af17d73416a00369a989a3c383ff0ab5c4e03f5ed439dd0a5f"
+    },
+    {
+      "path": "trial.csv.report.json",
+      "bytes": 1256,
+      "sha256": "a005f74177d9b348eaa1e0de9ba5b26c3c37407d0752ed9a8d328bfa4c733b09"
+    },
+    {
+      "path": "preflight.json",
+      "bytes": 13545,
+      "sha256": "79356298ad688dc87e2ad1f3b64c351db37920b788b40543526b54809953b76b"
+    },
+    {
+      "path": "postflight.json",
+      "bytes": 9450,
+      "sha256": "e80074cbee89e5caa1265dcbc4b0d22e36faef4d064b2a09305e168e03a73686"
+    },
+    {
+      "path": "quality.json",
+      "bytes": 1677,
+      "sha256": "647381d00f905c7e5474d966f9fb0fa22f848ac214e6564b5cfd35bcaf5d1c00"
+    },
+    {
+      "path": "cycle-analysis.json",
+      "bytes": 1826,
+      "sha256": "d526b1ce93c76f336b9c4f0da98885baa0123a4c61002f05216494997e4d7060"
+    },
+    {
+      "path": "comparison.json",
+      "bytes": 1543,
+      "sha256": "4682db690f73aafc686ec1c01c6a583e420816db73a2cc32edb72fe466ab9d28"
+    }
+  ]
+}

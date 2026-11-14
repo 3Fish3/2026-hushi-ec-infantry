@@ -1,0 +1,33 @@
+{
+  "classification": "build_tests_and_historical_flash_evidence",
+  "source_commit": "23b2684",
+  "firmware_elf_sha256": "d57dcb07da6d7d706a1f700ba438c86156a57cdaf97b4046ea1c16e1db132863",
+  "scope": "logs and metadata only; no firmware binaries or MCU Flash backups; historical postflash state is not live status",
+  "files": [
+    {
+      "path": "host-ctest.log",
+      "bytes": 5823,
+      "sha256": "20158c40e070f3cd36e6939e8dd58b68a260624e14e1d513e0016f5382b151c0"
+    },
+    {
+      "path": "host-build.log",
+      "bytes": 22,
+      "sha256": "8c35b1682f73592d30612d7b0fabdb384fcfff35cb5a076cb48b85b1368aa794"
+    },
+    {
+      "path": "arm-build-audit.log",
+      "bytes": 15376,
+      "sha256": "1616100b1528847ed3e74c6acb03081647dabf3df5ae685a67ad6d2ca3cd7497"
+    },
+    {
+      "path": "flash-result.json",
+      "bytes": 851,
+      "sha256": "2f793840ce57ab82c7e02fd3605090c96b961108c753b3053648ff99fb7674ce"
+    },
+    {
+      "path": "postflash-state.json",
+      "bytes": 10634,
+      "sha256": "b3d83eb70723b127c99c658192a6a8a7d5b25f7d967169c96b9648cfa00f9020"
+    }
+  ]
+}

@@ -1,0 +1,52 @@
+{
+  "scope": "per-cycle exploratory check; no open-loop stability margin or bandwidth claim",
+  "cycle_time_origin": "first recorded running sample, within one capture interval of segment start",
+  "cycles": [
+    {
+      "cycle": 2,
+      "samples": 833,
+      "heading_mean_rad": 0.01890442098926308,
+      "dm_position_mean_rad": -0.1349695155138174,
+      "heading_amp_rad": 0.029957854076578604,
+      "gain": 0.2995785449753427,
+      "lag_deg": 60.61329447158348,
+      "heading_residual_rms_rad": 0.004035238560076275,
+      "dm_position_amp_rad": 0.03670475750812249
+    },
+    {
+      "cycle": 3,
+      "samples": 834,
+      "heading_mean_rad": 0.019038321028353036,
+      "dm_position_mean_rad": -0.13622290722278846,
+      "heading_amp_rad": 0.02918872932369218,
+      "gain": 0.29188724754833917,
+      "lag_deg": 53.790563413121376,
+      "heading_residual_rms_rad": 0.0037416598475110956,
+      "dm_position_amp_rad": 0.03786709500239347
+    },
+    {
+      "cycle": 4,
+      "samples": 833,
+      "heading_mean_rad": 0.02299412967256459,
+      "dm_position_mean_rad": -0.1336433380584772,
+      "heading_amp_rad": 0.030900394271762794,
+      "gain": 0.3090039328887611,
+      "lag_deg": 61.50136540906561,
+      "heading_residual_rms_rad": 0.00503464596471577,
+      "dm_position_amp_rad": 0.03615763109977038
+    },
+    {
+      "cycle": 5,
+      "samples": 833,
+      "heading_mean_rad": 0.022700790430041112,
+      "dm_position_mean_rad": -0.13509089367855662,
+      "heading_amp_rad": 0.03253689889207627,
+      "gain": 0.32536901353226644,
+      "lag_deg": 57.62916940673974,
+      "heading_residual_rms_rad": 0.005134334533576218,
+      "dm_position_amp_rad": 0.03825353164676498
+    }
+  ],
+  "steady_mean_heading_span_rad": 0.00408970868330151,
+  "steady_mean_dm_position_span_rad": 0.002579569164311263
+}

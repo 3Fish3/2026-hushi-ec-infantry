@@ -1,0 +1,53 @@
+{
+  "classification": "real_hardware",
+  "changed_parameters": {
+    "0xa0a": {
+      "before": 2.0,
+      "after": 3.0
+    }
+  },
+  "caveats": [
+    "starting headings differ; posture/load not fully controlled",
+    "new-model startup assist depends on live angle Kp, so this is an overall configured-system comparison",
+    "single-frequency closed-loop response, not open-loop margin or validated final PID"
+  ],
+  "runs": [
+    {
+      "run": "run-20261114-082604",
+      "gain": 0.30602511056297477,
+      "lag_deg": 58.41864507008815,
+      "error_rms_rad": 0.0626514931817743,
+      "natural_completion": true,
+      "sequence_gaps": 0,
+      "motor_ptp_deg": 5.5079490702892615,
+      "heading_rate_peak_rad_s": 0.382968932390213,
+      "torque_command_peak_nm": 0.4649781584739685,
+      "cycle_gains": [
+        0.2995785449753427,
+        0.29188724754833917,
+        0.3090039328887611,
+        0.32536901353226644
+      ]
+    },
+    {
+      "run": "pid-v2-smoke-20261114-084534",
+      "gain": 0.5613627669096954,
+      "lag_deg": 39.14622400600587,
+      "error_rms_rad": 0.047024704480781616,
+      "natural_completion": true,
+      "sequence_gaps": 0,
+      "motor_ptp_deg": 8.240065719429381,
+      "heading_rate_peak_rad_s": 0.5305044054985046,
+      "torque_command_peak_nm": 0.5084362030029297,
+      "cycle_gains": [
+        0.5548848734578967,
+        0.5608680492826807,
+        0.5691996471480693,
+        0.5608834273917842
+      ]
+    }
+  ],
+  "relative_gain_change_pct": 83.4368316629287,
+  "lag_change_deg": -19.272421064082273,
+  "error_rms_change_pct": -24.942404254682017
+}

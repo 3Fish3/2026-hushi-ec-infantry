@@ -1,0 +1,48 @@
+{
+  "classification": "real_hardware",
+  "parameters_unchanged": true,
+  "runs": [
+    {
+      "run": "run-20261114-075723",
+      "start_heading_rad": -0.6511130332946777,
+      "gain": 0.3449801791771049,
+      "lag_deg": 51.64520357900479,
+      "residual_rms_rad": 0.008482622324891893,
+      "natural_completion": true,
+      "sequence_gaps": 0,
+      "dm_ptp_rad": 0.12016478925943375,
+      "heading_mean_span_rad": 0.013147796979958604,
+      "dm_mean_span_rad": 0.007880580427477496,
+      "cycle_gains": [
+        0.44721460919872186,
+        0.3347386166516665,
+        0.3172547245710379,
+        0.2835328245159672
+      ]
+    },
+    {
+      "run": "pid-v2-smoke-20261114-082604",
+      "start_heading_rad": -0.012106231413781643,
+      "gain": 0.30602511056297477,
+      "lag_deg": 58.41864507008815,
+      "residual_rms_rad": 0.0051304580333491525,
+      "natural_completion": true,
+      "sequence_gaps": 0,
+      "dm_ptp_rad": 0.09613184630870819,
+      "heading_mean_span_rad": 0.00408970868330151,
+      "dm_mean_span_rad": 0.002579569164311263,
+      "cycle_gains": [
+        0.2995785449753427,
+        0.29188724754833917,
+        0.3090039328887611,
+        0.32536901353226644
+      ]
+    }
+  ],
+  "notes": [
+    "same amplitude/frequency/cycles and firmware; starting headings/postures differ, not a fully controlled load-repeatability experiment",
+    "closed-loop single-frequency fit, not open-loop margin or final PID"
+  ],
+  "gain_relative_change_pct": -11.291972978578425,
+  "lag_change_deg": 6.773441491083354
+}

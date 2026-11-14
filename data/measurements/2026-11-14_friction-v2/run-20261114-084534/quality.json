@@ -1,0 +1,72 @@
+{
+  "purpose": "startup/stop smoke check, not usable frequency response",
+  "records": 5001,
+  "active_records": 5000,
+  "csv_sha256": "acbc95a902dd42f317b354a9e4b67add012e25f0eff79e645aca06c489895e09",
+  "terminal": {
+    "flags": 839,
+    "hz": 0.0,
+    "app_reason": 0
+  },
+  "natural_completion": true,
+  "sequence_gaps": 0,
+  "sampling": {
+    "hz": 250.00140000784003,
+    "min_us": 3747,
+    "max_us": 4243
+  },
+  "run_ids": [
+    4
+  ],
+  "reference_epochs": [
+    0
+  ],
+  "target_heading_rad": {
+    "min": 0.287068247795105,
+    "max": 0.48706814646720886,
+    "peak_to_peak": 0.19999989867210388
+  },
+  "heading_rad": {
+    "min": 0.358824759721756,
+    "max": 0.47467878460884094,
+    "peak_to_peak": 0.11585402488708496
+  },
+  "dm_position_rad": {
+    "min": -0.17414358258247375,
+    "max": -0.03032730519771576,
+    "peak_to_peak": 0.143816277384758
+  },
+  "dm_velocity_rad_s": {
+    "min": -1.5457875728607178,
+    "max": 1.4578754901885986,
+    "peak_to_peak": 3.0036630630493164
+  },
+  "torque_command_nm": {
+    "min": -0.5020835399627686,
+    "max": 0.5084362030029297,
+    "peak_to_peak": 1.0105197429656982
+  },
+  "torque_feedback_nm": {
+    "min": -0.44688645005226135,
+    "max": 0.38339439034461975,
+    "peak_to_peak": 0.8302808403968811
+  },
+  "heading_rate_rad_s": {
+    "min": -0.5206748843193054,
+    "max": 0.5305044054985046,
+    "peak_to_peak": 1.05117928981781
+  },
+  "tracking_error_rms_rad": 0.047024704480781616,
+  "postflight": {
+    "source": "none",
+    "authority": false,
+    "manual_stop": false,
+    "executing": [],
+    "dm": {
+      "online": true,
+      "enabled": false,
+      "faulted": false,
+      "age_ms": 1
+    }
+  }
+}
