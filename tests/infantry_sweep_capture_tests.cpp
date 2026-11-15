@@ -35,6 +35,7 @@ static sweep::Recorder synthetic_recorder() {
         sample.speed_p_nm = 0.2f; sample.speed_i_nm = 0.05f;
         sample.flags = sweep::target_valid | sweep::heading_valid | sweep::dm_feedback_fresh;
         sample.reason = 13; sample.feedback_age_ms = 2;
+        sample.sweep_phase = 3; sample.sweep_stop = 5;
         recorder.push(sample);
     }
     return recorder;
@@ -43,7 +44,7 @@ static auto native_golden() {
     const auto recorder = synthetic_recorder();
     std::array<std::uint8_t, 240> body{};
     const auto length = recorder.reply(request(1, 6), body);
-    assert(length == 232);
+    assert(length == 238);
     std::array<std::uint8_t, transport::uart_wire_max> wire{};
     const auto size = transport::encode_uart_frame(sweep::response_type, 0x7e7d,
         {body.data(), length}, wire);
@@ -57,15 +58,18 @@ static void recorder_contracts() {
     assert(buffer[3] == 0 && u32(buffer, 8) == 0);
     const auto recorder = synthetic_recorder();
     assert(recorder.next_sequence() == 134 && recorder.first_sequence() == 6);
-    // 满页 3 条: 16 头 + 3*72 = 232 字节.
-    assert(recorder.reply(request(1, 0), buffer) == 232);
+    // 满页 3 条: 16 头 + 3*74 = 238 字节, 不降低分页吞吐.
+    assert(sweep::schema == 3 && sweep::record_size == 74);
+    assert(recorder.reply(request(1, 0), buffer) == 238);
     assert(buffer[3] == 3 && u32(buffer, 4) == 6 && u32(buffer, 12) == 6);
-    assert(u32(buffer, 16) == 6 && u32(buffer, 16+72*2) == 8);
+    assert(u32(buffer, 16) == 6 && u32(buffer, 16+74*2) == 8);
+    assert(buffer[16+54] == 13); // APP 执行原因与 Sweep 停止原因独立保留.
+    assert(buffer[16+72] == 3 && buffer[16+73] == 5);
     // 首条样本第 12 字节起是 target_heading_rad; 记录布局 3*u32 之后.
     assert(std::bit_cast<float>(u32(buffer, 16+12)) == 3.25f);
-    assert(recorder.reply(request(1, 133), buffer) == 88 && u32(buffer, 16) == 133);
+    assert(recorder.reply(request(1, 133), buffer) == 90 && u32(buffer, 16) == 133);
     assert(recorder.reply(request(1, 135), buffer) == 16 && buffer[3] == 0);
-    assert(recorder.reply(request(1, 6), std::span{buffer}.first(88)) == 88);
+    assert(recorder.reply(request(1, 6), std::span{buffer}.first(90)) == 90);
     assert(recorder.reply(request(1, 6), std::span{buffer}.first(16)) == 16);
     auto malformed = request(1, 6); malformed[0] = static_cast<std::uint8_t>(sweep::schema + 1);
     assert(recorder.reply(malformed, buffer) == 0);
@@ -74,11 +78,11 @@ static void recorder_contracts() {
     buffer.fill(0xa5);
     assert(recorder.reply(request(0, 0), std::span{buffer}.first(15)) == 0);
     assert(buffer[15] == 0xa5);
-    // bit9位于 flags 高字节; 扩展标记不改变 schema2 的72字节布局.
+    // bit9仍位于 flags 高字节, 旧字段的偏移不变.
     sweep::Recorder angle;
     sweep::Sample sample{}; sample.flags = sweep::sweep_angle | sweep::sweep_running;
     angle.push(sample);
-    assert(angle.reply(request(1, 0), buffer) == 88);
+    assert(angle.reply(request(1, 0), buffer) == 90);
     assert(buffer[16+52] == 0x80 && buffer[16+53] == 0x02);
 }
 static void wire_and_mux_contracts() {
@@ -89,7 +93,7 @@ static void wire_and_mux_contracts() {
         if (auto decoded = decoder.push(wire[i])) { frame = decoded; }
     }
     assert(frame && frame->type == sweep::response_type && frame->sequence == 0x7e7d);
-    assert(frame->size == 232 && frame->payload[3] == 3);
+    assert(frame->size == 238 && frame->payload[3] == 3);
     assert(u32(frame->payload, 4) == 6 && u32(frame->payload, 16) == 6);
     assert(decoder.rejected() == 0);
     auto damaged = wire; damaged[size/2] ^= 1;

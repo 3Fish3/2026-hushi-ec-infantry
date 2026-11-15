@@ -12,6 +12,7 @@ import argparse
 import csv
 import json
 import math
+import statistics
 import struct
 import sys
 import time
@@ -36,6 +37,8 @@ MAX_GAP_US = 20000            # 250 Hz 下 4 ms 一条; 5 个周期无记录即�
 ACTIVE_BIT, TERMINAL_BIT, ANGLE_BIT = 0x80, 0x100, 0x200
 REQUIRED_BITS = 0x0F          # target/heading/DM 反馈/DM 使能
 MIN_SAMPLES = 20
+PHASE_COMPLETE, PHASE_ABORTED = 2, 3
+ANGLE_RATE_LIMIT_RAD_S = 1.5
 # 固件DM反馈TTL为20ms; 主机预检留出请求往返裕量, 不扩大固件新鲜度门限.
 DM_FRESH_MS = 10
 
@@ -220,17 +223,28 @@ def _solve3(matrix: list, vector: list):
 
 
 def _sinusoid_fit(times: list, values: list, omega: float):
-    """拟合 value ≈ c + a*cos(wt) + b*sin(wt); 返回 (c, 复数幅值 a - jb, 残差RMS)."""
+    """拟合常量与同频正余弦, 返回均值、复幅值、残差RMS和近似95%幅值不确定度."""
     basis = [[1.0, math.cos(omega * t), math.sin(omega * t)] for t in times]
     normal = [[sum(b[i] * b[j] for b in basis) for j in range(3)] for i in range(3)]
-    vector = [sum(b[i] * v for b, v in zip(basis, values)) for i in range(3)]
+    # 先移去大直流量, 恒定航向的正余弦系数应严格为零, 不放大正规方程舍入误差.
+    origin = values[0]
+    centered = [v - origin for v in values]
+    vector = [sum(b[i] * v for b, v in zip(basis, centered)) for i in range(3)]
     coefficients = _solve3(normal, vector)
     if coefficients is None:
         return None
     mean, cos_part, sin_part = coefficients
     residuals = [v - (mean + cos_part * b[1] + sin_part * b[2])
-                 for v, b in zip(values, basis)]
-    return mean, complex(cos_part, -sin_part), rms(residuals)
+                 for v, b in zip(centered, basis)]
+    # 独立同方差残差模型的大样本近似95%二维置信椭圆; 外接圆不含原点才给出相位.
+    # 5.99146是自由度2的卡方95%分位数, 不是物理响应幅值门槛.
+    cos_cov = _solve3(normal, [0.0, 1.0, 0.0])
+    sin_cov = _solve3(normal, [0.0, 0.0, 1.0])
+    variance = sum(v * v for v in residuals) / (len(values) - 3)
+    largest = 0.5 * (cos_cov[1] + sin_cov[2] +
+        math.hypot(cos_cov[1] - sin_cov[2], 2.0 * cos_cov[2]))
+    uncertainty = math.sqrt(max(0.0, 5.991464547 * variance * largest))
+    return mean + origin, complex(cos_part, -sin_part), rms(residuals), uncertainty
 
 
 def _csv_float(row: dict, field: str) -> float:
@@ -246,7 +260,8 @@ def angle_frequency(hz: float, rows: list) -> dict:
     period_us = 1e6 / hz
     item = dict(hz=hz, samples=len(rows), steady_samples=0, target_amp_rad=0.0,
                 heading_amp_rad=0.0, gain=0.0, residual_rms_rad=0.0, phase_deg=None,
-                lag_deg=None, usable=False)
+                lag_deg=None, phase_identifiable=False, steady_span_us=0,
+                steady_cycles=0.0, heading_amp_uncertainty_rad=0.0, usable=False)
     if len(rows) < 2:
         return item
     stamps = [int(_csv_float(row, 'timestamp_us')) for row in rows]
@@ -257,6 +272,10 @@ def angle_frequency(hz: float, rows: list) -> dict:
     item['steady_samples'] = len(steady)
     if len(steady) < MIN_SAMPLES:
         return item
+    steady_span = steady[-1][1] - steady[0][1]
+    sample_step = statistics.median((b - a) & 0xffffffff for a, b in zip(stamps, stamps[1:]))
+    item['steady_span_us'] = steady_span
+    item['steady_cycles'] = steady_span / period_us
     origin = steady[0][1]
     times = [(offset - origin) * 1e-6 for _, offset in steady]
     target = [_csv_float(row, 'target_heading_rad') for row, _ in steady]
@@ -270,10 +289,17 @@ def angle_frequency(hz: float, rows: list) -> dict:
     item['heading_amp_rad'] = abs(fit_heading[1])
     item['gain'] = abs(fit_heading[1]) / abs(fit_target[1])
     item['residual_rms_rad'] = fit_heading[2]
-    response = fit_heading[1] / fit_target[1]
-    item['phase_deg'] = item['lag_deg'] = -math.degrees(math.atan2(response.imag,
-                                                                  response.real))
-    item['usable'] = (item['target_amp_rad'] > 1e-4 and span >= 2.0 * period_us)
+    item['heading_amp_uncertainty_rad'] = fit_heading[3]
+    item['phase_identifiable'] = (abs(fit_target[1]) > fit_target[3] and
+                                  abs(fit_heading[1]) > fit_heading[3])
+    if item['phase_identifiable']:
+        response = fit_heading[1] / fit_target[1]
+        item['phase_deg'] = item['lag_deg'] = -math.degrees(math.atan2(response.imag,
+                                                                      response.real))
+    # 首/末记录和两次包络裁切各有采样量化, 最多损失三个采样间隔.
+    # usable表示稳态测量可用; 零响应证据保留, 相位是否可辨识单独报告.
+    item['usable'] = (item['target_amp_rad'] > 1e-4 and
+                      steady_span + 3 * sample_step >= 2.0 * period_us)
     return item
 
 
@@ -284,7 +310,8 @@ def per_frequency(path: Path, frequencies: list, mode: str = 'torque') -> list:
                 if (int(row['flags']) & ACTIVE_BIT) and not (int(row['flags']) & TERMINAL_BIT)]
     report = []
     for hz in frequencies:
-        subset = [row for row in rows if abs(float(row['sweep_hz']) - hz) <= 1e-3]
+        hz = _float32(hz)
+        subset = [row for row in rows if _float32(float(row['sweep_hz'])) == hz]
         if mode == 'angle':
             report.append(angle_frequency(hz, subset))
             continue
@@ -319,7 +346,8 @@ def acquire(client, args, cursor: int, duration: float, writer, stream, state,
     setpoints = [('main_yaw', 'position', float(args.target_heading), 0)]
     expect_angle = mode == 'angle'
     run_id = first_ts = last_ts = last_epoch = None
-    terminal_ts = terminal_flags = terminal_reason = None
+    terminal_ts = terminal_flags = terminal_reason = terminal_phase = terminal_stop = None
+    terminal_errors = []
     active = 0
     while terminal_ts is None:
         now = time.monotonic()
@@ -345,23 +373,30 @@ def acquire(client, args, cursor: int, duration: float, writer, stream, state,
                 raise RuntimeError('capture sequence discontinuity')
             cursor += 1
             capture.validate_sample(row)
+            sample_errors = []
             if last_ts is not None:
                 gap = (row['timestamp_us'] - last_ts) & 0xFFFFFFFF
                 if not 0 < gap <= MAX_GAP_US:
-                    raise RuntimeError(f'sample timing invalid: {gap} us')
-            last_ts = row['timestamp_us']
+                    sample_errors.append(f'sample timing invalid: {gap} us')
             if last_epoch is not None and row['reference_epoch'] != last_epoch:
-                raise RuntimeError('reference epoch changed during trial')
-            last_epoch = row['reference_epoch']
+                sample_errors.append('reference epoch changed during trial')
             flags = int(row['flags'])
             if flags & TERMINAL_BIT:
                 if run_id is not None and row['sweep_run_id'] != run_id:
                     raise RuntimeError('terminal row changed the sweep run id')
+                # 参考变化/时钟断点本身可能触发中止; 保存终态事实, 但禁止判为成功.
+                terminal_errors = sample_errors
                 terminal_ts, terminal_flags = row['timestamp_us'], flags
                 terminal_reason = int(row['reason'])
+                terminal_phase = int(row['sweep_phase'])
+                terminal_stop = int(row['sweep_stop'])
                 writer.writerow(row)
                 state.update(cursor=cursor, terminal=True)
                 break
+            if sample_errors:
+                raise RuntimeError('; '.join(sample_errors))
+            last_ts = row['timestamp_us']
+            last_epoch = row['reference_epoch']
             if not flags & ACTIVE_BIT:
                 continue  # 启动前的非运行记录不计入活性数据
             if flags & REQUIRED_BITS != REQUIRED_BITS or row['reason'] != 0:
@@ -388,10 +423,14 @@ def acquire(client, args, cursor: int, duration: float, writer, stream, state,
     span = 0 if first_ts is None else (terminal_ts - first_ts) & 0xFFFFFFFF
     expected = int(duration * 1e6)
     # 只按 MCU 时戳与运行状态判断正常结束, 不用墙钟提前下结论.
-    complete = bool(run_id and active >= MIN_SAMPLES and span + 20000 >= expected)
+    complete = bool(run_id and active >= MIN_SAMPLES and span + 20000 >= expected
+                    and terminal_phase == PHASE_COMPLETE and terminal_stop == 0
+                    and not terminal_errors)
     return dict(run_id=run_id, active_samples=active, mcu_span_us=span,
                 expected_us=expected, complete=complete,
-                terminal_flags=terminal_flags, terminal_reason=terminal_reason)
+                terminal_flags=terminal_flags, terminal_reason=terminal_reason,
+                terminal_phase=terminal_phase, terminal_stop=terminal_stop,
+                terminal_errors=terminal_errors)
 
 
 def confirm_disabled(client, cursor: int) -> dict:
@@ -417,6 +456,14 @@ def confirm_disabled(client, cursor: int) -> dict:
                 authority=authority, confirmed=fresh and not enabled and authority is False)
 
 
+def _float32(value: float) -> float:
+    """计划与频点身份使用线上float32, 不用近似频率区间合并不同段."""
+    try:
+        return struct.unpack('<f', struct.pack('<f', value))[0]
+    except (OverflowError, struct.error) as error:
+        raise ValueError('plan value cannot be represented as float32') from error
+
+
 def _plan(args):
     """校验模式与幅值单位; 返回 (mode, op, amplitude, duration), 不在此打开串口."""
     if not args.arm:
@@ -430,19 +477,19 @@ def _plan(args):
     if mode == 'angle':
         if amplitude_nm is not None:
             raise ValueError('angle mode takes --amplitude-rad, not --amplitude-nm')
-        amplitude = amplitude_rad
+        amplitude = None if amplitude_rad is None else _float32(amplitude_rad)
         op = ANGLE
         valid = amplitude is not None and math.isfinite(amplitude) \
-            and 0.0 < amplitude <= 0.2
+            and 0.0 < amplitude <= _float32(0.2)
         unit = 'amplitude rad must be in (0,0.2]'
     else:
         if amplitude_rad is not None:
             raise ValueError('torque mode takes --amplitude-nm, not --amplitude-rad')
-        amplitude = 0.01 if amplitude_nm is None else amplitude_nm
+        amplitude = _float32(0.01 if amplitude_nm is None else amplitude_nm)
         op = TORQUE
-        valid = math.isfinite(amplitude) and 0.0 < amplitude <= 0.03
+        valid = math.isfinite(amplitude) and 0.0 < amplitude <= _float32(0.03)
         unit = 'amplitude Nm must be in (0,0.03]'
-    frequencies = args.frequencies
+    frequencies = [_float32(hz) for hz in args.frequencies]
     if (not frequencies or len(frequencies) > 6
             or not all(math.isfinite(f) for f in frequencies)
             or frequencies[0] < 0.2
@@ -456,11 +503,16 @@ def _plan(args):
     duration = sum(args.cycles / hz for hz in frequencies)
     if duration > 120.0:
         raise ValueError('invalid plan: total excitation exceeds 120 s')
-    return mode, op, float(amplitude), duration
+    # 与MCU一致: 先量化线上数值, 再用double计算峰速; 不放宽实测速率保护.
+    if mode == 'angle' and any(math.tau * amplitude * hz > ANGLE_RATE_LIMIT_RAD_S
+                               for hz in frequencies):
+        raise ValueError('invalid angle plan: peak target rate exceeds 1.5 rad/s')
+    return mode, op, amplitude, duration
 
 
 def run(args, link_factory=None) -> dict:
     mode, op, amplitude, duration = _plan(args)
+    frequencies = [_float32(hz) for hz in args.frequencies]
     report_path = Path(str(args.output) + '.report.json')
     if args.output.exists() or report_path.exists():
         raise FileExistsError(f'will not overwrite {args.output} or its summary')
@@ -471,7 +523,7 @@ def run(args, link_factory=None) -> dict:
     meta = dict(tool='infantry_sweep_trial', schema=capture.SCHEMA, complete=False,
                 mode=mode,
                 amplitude=amplitude, amplitude_unit='rad' if mode == 'angle' else 'Nm',
-                frequencies=list(args.frequencies), cycles=args.cycles,
+                frequencies=frequencies, cycles=args.cycles,
                 duration_s=duration,
                 target_heading_rad=args.target_heading, port=args.serial, baud=args.baud,
                 elf_sha256=elf_sha256)
@@ -479,7 +531,8 @@ def run(args, link_factory=None) -> dict:
         meta['amplitude_nm'] = amplitude
     else:
         meta['note'] = ('angle mode: 逐频点正弦航向响应的幅值与滞后, '
-                        '不构成全带宽辨识或最优 PID 结论')
+                        '不构成全带宽辨识或最优 PID 结论; '
+                        'usable表示稳态数据与增益可用, 相位需另查phase_identifiable')
     setpoints = [('main_yaw', 'position', float(args.target_heading), 0)]
     link = client = None
     start_attempted = False
@@ -495,22 +548,27 @@ def run(args, link_factory=None) -> dict:
             writer.writeheader()
             stream.flush()
             start_attempted = True
-            sweep_command(client, op, args.frequencies, args.cycles, amplitude)
+            sweep_command(client, op, frequencies, args.cycles, amplitude)
             # 在START受理后取游标, 不把两次请求之间的上次终态归入本次运行.
             cursor = capture_page(client, 0, 0)['next']
             result = acquire(client, args, cursor, duration, writer, stream, state, mode)
         meta.update(records=result['active_samples'], sweep_run_id=result['run_id'],
                     mcu_span_us=result['mcu_span_us'], expected_us=result['expected_us'],
                     terminal_flags=result['terminal_flags'],
-                    terminal_reason=result['terminal_reason'])
-        meta['frequencies_report'] = per_frequency(args.output, args.frequencies, mode)
+                    terminal_reason=result['terminal_reason'],
+                    terminal_phase=result['terminal_phase'], terminal_stop=result['terminal_stop'],
+                    terminal_errors=result['terminal_errors'])
+        meta['frequencies_report'] = per_frequency(args.output, frequencies, mode)
         usable = all(item['usable'] for item in meta['frequencies_report'])
         if result['complete'] and usable:
             meta['complete'] = True
         elif not result['active_samples']:
             meta['reason'] = 'no active samples'
         elif not result['complete']:
-            meta['reason'] = 'terminal before expected MCU span'
+            meta['reason'] = (f'sweep aborted: stop={result["terminal_stop"]}'
+                              if result['terminal_phase'] == PHASE_ABORTED
+                              else '; '.join(result['terminal_errors']) or
+                                   'terminal before expected MCU span or invalid completion state')
         else:
             meta['reason'] = 'insufficient usable response per frequency'
     except BaseException as error:

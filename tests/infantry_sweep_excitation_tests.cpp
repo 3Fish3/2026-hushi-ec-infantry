@@ -174,7 +174,65 @@ static void angle_contracts() {
     assert(wrap.angle_target(0u));
     assert(wrap.step(0u, good) == 0);
 }
+static void angle_plan_respects_rate_guard() {
+    auto angle = plan();
+    angle.mode = sweep::Mode::angle; angle.amplitude_nm = 0;
+    angle.count = 1; angle.hz[0] = 5.0f; angle.amplitude_rad = 0.05f;
+    // 各自合法的幅值/频率组合, 理想跟踪也会超过既有1.5 rad/s保护.
+    assert(!sweep::Engine::valid_plan(angle));
+    sweep::Engine rejected;
+    assert(!rejected.start(angle, 1000, healthy()));
+    assert(rejected.status().phase == sweep::Phase::idle && rejected.status().run_id == 0);
+    angle.hz[0] = 2.0f; angle.amplitude_rad = 0.2f;
+    assert(!sweep::Engine::valid_plan(angle));
+
+    // 线上float32幅值在理论速率边界两侧的相邻可表示值必须得到不同结果.
+    constexpr double tau = 6.28318530717958647692;
+    angle.hz[0] = 5.0f;
+    const double boundary = 1.5 / (tau * 5.0);
+    float inside = static_cast<float>(boundary);
+    if (static_cast<double>(inside) > boundary) { inside = std::nextafter(inside, 0.0f); }
+    angle.amplitude_rad = inside;
+    assert(sweep::Engine::valid_plan(angle));
+    angle.amplitude_rad = std::nextafter(inside, INFINITY);
+    assert(!sweep::Engine::valid_plan(angle));
+    angle.count = 2; angle.hz[0] = 1.0f; angle.hz[1] = 5.0f;
+    assert(!sweep::Engine::valid_plan(angle)); // 后续频点也必须检查, 不能只看首点.
+
+    // 力矩幅值不与角速度同量纲, 不把角度计划约束误套到力矩试验.
+    auto torque = plan(); torque.count = 1; torque.hz[0] = 5.0f;
+    torque.amplitude_nm = sweep::Engine::amplitude_limit_nm;
+    assert(sweep::Engine::valid_plan(torque));
+}
+static void angle_envelope_respects_peak_rate() {
+    for (std::uint8_t cycles : {3, 4, 12}) {
+        auto angle = plan(); angle.mode = sweep::Mode::angle; angle.amplitude_nm = 0;
+        angle.amplitude_rad = 0.04f; angle.count = 1; angle.hz[0] = 5.0f; angle.cycles = cycles;
+        sweep::Engine engine;
+        const auto good = healthy();
+        assert(engine.start(angle, 0, good));
+        auto previous = engine.angle_target(0);
+        float ramp_in_peak = 0, steady_peak = 0, ramp_out_peak = 0;
+        const unsigned duration_ms = static_cast<unsigned>(cycles) * 200;
+        for (unsigned ms = 1; ms <= duration_ms; ++ms) {
+            const auto target = engine.angle_target(ms * 1000u);
+            assert(target && previous);
+            const float rate = std::fabs((*target - *previous) / 0.001f);
+            // 直接检查真实目标波形的差分斜率, 包含首尾包络及其切换点.
+            auto& peak = ms <= 200 ? ramp_in_peak :
+                ms <= duration_ms - 200 ? steady_peak : ramp_out_peak;
+            peak = std::max(peak, rate);
+            assert(rate < 1.258f); // 理论2πAf约1.25664, 容差只覆盖float波形求值.
+            previous = target;
+            (void)engine.step(ms * 1000u, good);
+        }
+        assert(ramp_in_peak > 1.24f && steady_peak > 1.24f && ramp_out_peak > 1.24f);
+        assert(engine.status().phase == sweep::Phase::complete);
+    }
+}
 int main() {
+    angle_plan_respects_rate_guard();
+    angle_envelope_respects_peak_rate();
     angle_contracts();
     plan_validation();
     run_to_completion();

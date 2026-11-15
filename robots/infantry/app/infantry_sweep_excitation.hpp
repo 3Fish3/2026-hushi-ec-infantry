@@ -52,6 +52,12 @@ public:
         for (unsigned i=0;i<p.count;++i) {
             if (!std::isfinite(p.hz[i]) || p.hz[i]<0.2f || p.hz[i]>5 ||
                 (i && p.hz[i]<=p.hz[i-1])) { return false; }
+            // 首尾各一整周期线性包络, 其导数为Af*(sin(y)+y*cos(y)), y∈[0,2π].
+            // 绝对峰值仍为2πAf, 与稳态相同; 合法计划不能要求理想跟踪突破速度保护.
+            // 在线上float32值上用double判边界, 与主机预检查保持一致.
+            constexpr double tau = 6.28318530717958647692;
+            if (p.mode==Mode::angle && tau*static_cast<double>(p.amplitude_rad)*
+                static_cast<double>(p.hz[i])>static_cast<double>(rate_limit_rad_s)) { return false; }
             duration+=static_cast<float>(p.cycles)/p.hz[i];
         }
         return duration<=120;

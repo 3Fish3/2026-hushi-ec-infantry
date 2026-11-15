@@ -16,6 +16,7 @@ import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'robots/infantry/host'))
@@ -82,11 +83,13 @@ def _diagnostics1(seq):
     return body
 
 
-def _row(sequence, ts, hz, flags=0x8F, run_id=RUN_ID, epoch=1):
+def _row(sequence, ts, hz, flags=0x8F, run_id=RUN_ID, epoch=1, phase=None, stop=0):
+    if phase is None:
+        phase = 1 if flags & 0x80 else 2 if flags & 0x100 else 0
     return struct.pack(
-        '<III10fHBBI3f', sequence, ts, epoch,
+        '<III10fHBBI3fBB', sequence, ts, epoch,
         0.5, 0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-        flags, 0, 5, run_id, hz, AMPLITUDE, AMPLITUDE)
+        flags, 0, 5, run_id, hz, AMPLITUDE, AMPLITUDE, phase, stop)
 
 
 def _rows(mutate=None):
@@ -121,14 +124,14 @@ def _angle_rows(hz=0.5, cycles=6, amp=0.2, gain=0.8, lag_deg=30.0):
         heading = baseline + gain * amp * envelope * shifted
         flags = 0x80 | 0x0F | 0x200
         rows.append((index * 4000, struct.pack(
-            '<III10fHBBI3f', START_CURSOR + index, index * 4000, 1,
+            '<III10fHBBI3fBB', START_CURSOR + index, index * 4000, 1,
             target, heading, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-            flags, 0, 5, RUN_ID, hz, 0.0, 0.0)))
+            flags, 0, 5, RUN_ID, hz, 0.0, 0.0, 1, 0)))
     terminal = total * 4000
     rows.append((terminal, struct.pack(
-        '<III10fHBBI3f', START_CURSOR + total, terminal, 1,
+        '<III10fHBBI3fBB', START_CURSOR + total, terminal, 1,
         baseline, baseline, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-        0x100 | 0x200, 0, 5, RUN_ID, 0.0, 0.0, 0.0)))
+        0x100 | 0x200, 0, 5, RUN_ID, 0.0, 0.0, 0.0, 2, 0)))
     return rows
 
 
@@ -250,13 +253,137 @@ def _args(tmp, arm=True, **overrides):
     return SimpleNamespace(**values)
 
 
+class AnalysisTests(unittest.TestCase):
+    @staticmethod
+    def angle_samples(hz, cycles, gain=0.8, start_us=0):
+        rows = []
+        for index in range(round(cycles / hz * 250)):
+            t = index * 0.004
+            envelope = min(1.0, t * hz, cycles - t * hz)
+            rows.append(dict(timestamp_us=(start_us + index * 4000) & 0xffffffff,
+                target_heading_rad=0.52 + 0.2 * envelope * math.sin(math.tau * hz * t),
+                heading_rad=0.52 + gain * 0.2 * envelope * math.sin(math.tau * hz * t - math.pi / 6)))
+        return rows
+
+    def test_angle_requires_two_steady_cycles(self):
+        for hz in (0.5, 0.7, 3.1):
+            for cycles in (3, 4, 6):
+                with self.subTest(hz=hz, cycles=cycles):
+                    item = trial.angle_frequency(hz, self.angle_samples(hz, cycles, start_us=0xffff0000))
+                    self.assertEqual(item['usable'], cycles >= 4, item)
+                    if cycles >= 4:
+                        self.assertAlmostEqual(item['gain'], 0.8, delta=0.01)
+                        self.assertAlmostEqual(item['lag_deg'], 30.0, delta=0.5)
+
+    def test_zero_response_remains_measurement_without_phase(self):
+        item = trial.angle_frequency(0.5, self.angle_samples(0.5, 6, gain=0.0))
+        self.assertTrue(item['usable'], item)
+        self.assertAlmostEqual(item['gain'], 0.0, delta=1e-10)
+        self.assertFalse(item['phase_identifiable'])
+        self.assertIsNone(item['phase_deg'])
+        self.assertIsNone(item['lag_deg'])
+
+    def test_noise_without_same_frequency_response_has_no_phase(self):
+        rows = self.angle_samples(0.5, 6, gain=0.0)
+        for index, row in enumerate(rows):
+            row['heading_rad'] += 0.01 * math.sin(math.tau * 7.0 * index * 0.004)
+        item = trial.angle_frequency(0.5, rows)
+        self.assertTrue(item['usable'], item)
+        self.assertFalse(item['phase_identifiable'])
+        self.assertIsNone(item['lag_deg'])
+
+    def test_close_frequencies_have_separate_samples(self):
+        frequencies = [0.5, 0.5005]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'close.csv'
+            with path.open('w', newline='') as stream:
+                writer = csv.DictWriter(stream, fieldnames=capture.FIELDS)
+                writer.writeheader()
+                for hz, count in zip(frequencies, (21, 27)):
+                    wire_hz = struct.unpack('<f', struct.pack('<f', hz))[0]
+                    for index in range(count):
+                        row = dict.fromkeys(capture.FIELDS, 0)
+                        row.update(flags=trial.ACTIVE_BIT, sweep_hz=wire_hz,
+                                   applied_excitation_nm=0.01, requested_excitation_nm=0.01)
+                        writer.writerow(row)
+            report = trial.per_frequency(path, frequencies)
+        self.assertEqual([item['samples'] for item in report], [21, 27])
+        self.assertEqual([item['hz'] for item in report],
+                         [struct.unpack('<f', struct.pack('<f', hz))[0] for hz in frequencies])
+
+    def test_float32_duplicate_plan_rejected_before_open(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args = _args(tmp, frequencies=[0.5, 0.500000001])
+            with self.assertRaises(ValueError):
+                trial.run(args, link_factory=lambda: self.fail('must reject before opening'))
+            self.assertFalse(list(Path(tmp).iterdir()))
+
+    def test_terminal_phase_not_duration_decides_success(self):
+        # SYNTHETIC: 距期望结束12ms的自然终态仍容许采样误差, 中止必须失败.
+        for phase, stop, expected in ((2, 0, True), (3, 5, False), (3, 8, False)):
+            with self.subTest(phase=phase, stop=stop):
+                rows = []
+                for index in range(248):
+                    row = dict.fromkeys(capture.FIELDS, 0)
+                    row.update(sequence=index, timestamp_us=index * 4000, reference_epoch=1,
+                               flags=0x8f, sweep_run_id=RUN_ID, sweep_hz=3.0,
+                               sweep_phase=1, sweep_stop=0)
+                    rows.append(row)
+                rows[-1].update(flags=trial.TERMINAL_BIT, sweep_phase=phase, sweep_stop=stop)
+                client = mock.Mock()
+                client.authorize.return_value = client.targets.return_value = {'result': 0}
+                with mock.patch.object(trial, 'capture_page', return_value={'first': 0, 'rows': rows}):
+                    result = trial.acquire(client, SimpleNamespace(target_heading=0.5),
+                                           0, 1.0, mock.Mock(), mock.Mock(), {})
+                self.assertEqual(result['complete'], expected, result)
+                self.assertEqual(result['terminal_phase'], phase)
+                self.assertEqual(result['terminal_stop'], stop)
+
+    def test_angle_rate_constraint_before_open(self):
+        for amplitude, hz in ((0.05, 5.0), (0.2, 2.0)):
+            with tempfile.TemporaryDirectory() as tmp:
+                args = _args(tmp, mode='angle', amplitude_nm=None,
+                             amplitude_rad=amplitude, frequencies=[hz])
+                with self.assertRaises(ValueError):
+                    trial.run(args, link_factory=lambda: self.fail('must reject before opening'))
+                self.assertFalse(list(Path(tmp).iterdir()))
+
+    def test_float32_rate_boundary_and_close_plan(self):
+        boundary = 1.5 / (math.tau * 5.0)
+        bits = struct.unpack('<I', struct.pack('<f', boundary))[0]
+        if struct.unpack('<f', struct.pack('<I', bits))[0] > boundary:
+            bits -= 1
+        lower = struct.unpack('<f', struct.pack('<I', bits))[0]
+        upper = struct.unpack('<f', struct.pack('<I', bits + 1))[0]
+        with tempfile.TemporaryDirectory() as tmp:
+            args = _args(tmp, mode='angle', amplitude_nm=None, amplitude_rad=lower, frequencies=[5.0])
+            self.assertEqual(trial._plan(args)[2], lower)
+            args.amplitude_rad = upper
+            with self.assertRaises(ValueError):
+                trial._plan(args)
+            self.assertGreater(trial._plan(_args(tmp, frequencies=[0.5, 0.5005]))[3], 0.0)
+
+    def test_amplitude_validation_uses_wire_float32(self):
+        for mode, field, limit in (('angle', 'amplitude_rad', 0.2),
+                                   ('torque', 'amplitude_nm', 0.03)):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as tmp:
+                args = _args(tmp, mode=mode, amplitude_nm=None, amplitude_rad=None,
+                             frequencies=[0.5])
+                setattr(args, field, 1e-50)
+                with self.assertRaises(ValueError):
+                    trial.run(args, link_factory=lambda: self.fail('must reject before opening'))
+                wire_limit = struct.unpack('<f', struct.pack('<f', limit))[0]
+                setattr(args, field, wire_limit)
+                self.assertEqual(trial._plan(args)[2], wire_limit)
+
+
 class TrialTests(unittest.TestCase):
     def _run(self, device, **overrides):
         with tempfile.TemporaryDirectory() as tmp:
             args = _args(tmp, **overrides)
             meta = trial.run(args, link_factory=lambda: device)
-            report = json.loads(Path(str(args.output) + '.report.json').read_text())
-            with args.output.open() as stream:
+            report = json.loads(Path(str(args.output) + '.report.json').read_text(encoding='utf-8'))
+            with args.output.open(encoding='utf-8') as stream:
                 lines = stream.read().splitlines()
         return meta, report, lines
 
@@ -314,7 +441,7 @@ class TrialTests(unittest.TestCase):
             args = _args(tmp)
             with self.assertRaises(TimeoutError):
                 trial.run(args, link_factory=lambda: device)
-            report = json.loads(Path(str(args.output) + '.report.json').read_text())
+            report = json.loads(Path(str(args.output) + '.report.json').read_text(encoding='utf-8'))
         self.assertFalse(report['complete'])
         self.assertIn('error', report)
         self.assertEqual(device.written_types.count(trial.SWEEP), 2)  # START + CANCEL
@@ -333,13 +460,18 @@ class TrialTests(unittest.TestCase):
         def make_gap(rows):
             rows[20] = (rows[20][0], _row(START_CURSOR + 20, rows[19][0] + 40000, 3.0))
 
-        for mutate in (change_run_id, change_epoch, make_gap):
+        def change_terminal_run_id(rows):
+            stamp = rows[-1][0]
+            rows[-1] = (stamp, _row(START_CURSOR + len(rows) - 1, stamp, 0.0,
+                                   flags=0x100, run_id=RUN_ID + 1))
+
+        for mutate in (change_run_id, change_epoch, make_gap, change_terminal_run_id):
             device = FakeDevice(rows=_rows(mutate))
             with tempfile.TemporaryDirectory() as tmp:
                 args = _args(tmp)
                 with self.assertRaises(RuntimeError):
                     trial.run(args, link_factory=lambda: device)
-                report = json.loads(Path(str(args.output) + '.report.json').read_text())
+                report = json.loads(Path(str(args.output) + '.report.json').read_text(encoding='utf-8'))
             self.assertFalse(report['complete'])
             self.assertIn('error', report)
             self.assertTrue(device.closed)
@@ -350,9 +482,9 @@ class TrialTests(unittest.TestCase):
         prefix = _row(START_CURSOR, 0, 0.0, flags=0x100, run_id=RUN_ID-1)
         shifted = []
         for index, (stamp, blob) in enumerate(rows):
-            fields = list(struct.unpack('<III10fHBBI3f', blob))
+            fields = list(struct.unpack('<III10fHBBI3fBB', blob))
             fields[0] = START_CURSOR + index + 1; fields[1] = stamp + 4000
-            shifted.append((stamp+4000, struct.pack('<III10fHBBI3f', *fields)))
+            shifted.append((stamp+4000, struct.pack('<III10fHBBI3fBB', *fields)))
         class RepeatedTrial(FakeDevice):
             def _page(self, op, cursor):
                 if op == 0 and self.running:
@@ -389,6 +521,57 @@ class TrialTests(unittest.TestCase):
         self.assertGreater(report['records'], 0)
         self.assertGreater(len(lines), 1)
 
+    def test_late_abort_keeps_stop_reason_in_report(self):
+        rows = _rows()
+        # 最后12ms的中止不可被20ms时长容差吞掉, APP reason仍是0.
+        rows = rows[:-3]
+        stamp = rows[-1][0]
+        rows[-1] = (stamp, _row(START_CURSOR + len(rows) - 1, stamp, FREQUENCIES[-1],
+                               flags=0x100, phase=3, stop=5))
+        _, report, lines = self._run(FakeDevice(rows=rows))
+        self.assertFalse(report['complete'])
+        self.assertEqual(report['terminal_phase'], 3)
+        self.assertEqual(report['terminal_stop'], 5)
+        self.assertEqual(report['terminal_reason'], 0)
+        self.assertIn('stop=5', report['reason'])
+        self.assertGreater(len(lines), 1)
+
+    def _terminal_fault(self, phase, stop, epoch=1, delay_us=0):
+        rows = _rows()
+        stamp = rows[-1][0] + delay_us
+        rows[-1] = (stamp, _row(START_CURSOR + len(rows) - 1, stamp, 0.0,
+                               flags=0x100, phase=phase, stop=stop, epoch=epoch))
+        _, report, lines = self._run(FakeDevice(rows=rows))
+        recorded = list(csv.DictReader(lines))
+        self.assertFalse(report['complete'])
+        self.assertEqual(report['terminal_phase'], phase)
+        self.assertEqual(report['terminal_stop'], stop)
+        self.assertEqual(len(recorded), len(rows))
+        self.assertEqual(int(recorded[-1]['sweep_phase']), phase)
+        self.assertEqual(int(recorded[-1]['sweep_stop']), stop)
+        self.assertEqual(int(recorded[-1]['reference_epoch']), epoch)
+        self.assertEqual(int(recorded[-1]['timestamp_us']), stamp)
+        return report
+
+    def test_reference_abort_keeps_new_epoch_terminal_evidence(self):
+        # 参考变化可能先命中feedback保护, 两种Stop都必须保存真实终态.
+        for stop in (4, 3):
+            with self.subTest(stop=stop):
+                report = self._terminal_fault(phase=3, stop=stop, epoch=2)
+                self.assertIn(f'stop={stop}', report['reason'])
+                self.assertIn('reference epoch changed', ' '.join(report['terminal_errors']))
+
+    def test_clock_abort_keeps_long_gap_terminal_evidence(self):
+        report = self._terminal_fault(phase=3, stop=7, delay_us=40000)
+        self.assertIn('stop=7', report['reason'])
+        self.assertIn('sample timing invalid', ' '.join(report['terminal_errors']))
+
+    def test_complete_terminal_with_epoch_or_gap_error_cannot_succeed(self):
+        for fault in ({'epoch': 2}, {'delay_us': 40000}):
+            with self.subTest(**fault):
+                report = self._terminal_fault(phase=2, stop=0, **fault)
+                self.assertTrue(report['terminal_errors'])
+
     def test_start_while_dm_disabled_then_arming_confirmed(self):
         """START 前 DM 允许关机 (否则重复试验会死锁), 运行记录建立后才注入."""
         device = FakeDevice()
@@ -412,7 +595,7 @@ class TrialTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 trial.run(args, link_factory=lambda: device)
             elapsed = time.monotonic() - started
-            report = json.loads(Path(str(args.output) + '.report.json').read_text())
+            report = json.loads(Path(str(args.output) + '.report.json').read_text(encoding='utf-8'))
         self.assertGreaterEqual(elapsed, trial.ARM_WAIT_S - 0.05)
         self.assertFalse(report['complete'])
         self.assertIn('arming', report['error'])
@@ -442,8 +625,8 @@ class TrialTests(unittest.TestCase):
             args = _args(tmp, mode='angle', amplitude_rad=0.2, amplitude_nm=None,
                          frequencies=[0.5], cycles=6, target_heading=0.52)
             meta = trial.run(args, link_factory=lambda: device)
-            report = json.loads(Path(str(args.output) + '.report.json').read_text())
-            with args.output.open() as stream:
+            report = json.loads(Path(str(args.output) + '.report.json').read_text(encoding='utf-8'))
+            with args.output.open(encoding='utf-8') as stream:
                 rows = list(csv.DictReader(stream))
         self.assertTrue(report['complete'], report)
         self.assertEqual(report['mode'], 'angle')
@@ -473,11 +656,11 @@ class TrialTests(unittest.TestCase):
         """角度请求遇到未置 bit9 的活性记录必须判为模式不符, 不静默接受."""
         device = FakeDevice()
         with tempfile.TemporaryDirectory() as tmp:
-            args = _args(tmp, mode='angle', amplitude_rad=0.2, amplitude_nm=None,
+            args = _args(tmp, mode='angle', amplitude_rad=0.05, amplitude_nm=None,
                          frequencies=list(FREQUENCIES))
             with self.assertRaises(RuntimeError) as caught:
                 trial.run(args, link_factory=lambda: device)
-            report = json.loads(Path(str(args.output) + '.report.json').read_text())
+            report = json.loads(Path(str(args.output) + '.report.json').read_text(encoding='utf-8'))
         self.assertIn('mode flag', str(caught.exception))
         self.assertFalse(report['complete'])
         self.assertEqual(report['mode'], 'angle')

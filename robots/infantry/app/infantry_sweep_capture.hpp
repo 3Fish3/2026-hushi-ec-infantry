@@ -10,11 +10,11 @@
 #include "ec/transport/uart_frame.hpp"
 
 namespace ec::infantry::app::sweep {
-inline constexpr std::uint8_t request_type = 0x37, response_type = 0xb7, schema = 2;
+inline constexpr std::uint8_t request_type = 0x37, response_type = 0xb7, schema = 3;
 // 256 条约 18 KiB, 会使镜像 RAM 只剩 3.6 KiB; 250 Hz 下 128 条仍保留 512 ms,
 // 足以覆盖主机排空延迟, 因此按 RAM 预算取 128.
 inline constexpr std::uint32_t capacity = 128;
-inline constexpr std::size_t record_size = 72, response_header_size = 16, max_page_records = 3;
+inline constexpr std::size_t record_size = 74, response_header_size = 16, max_page_records = 3;
 
 enum Flag : std::uint16_t {
     target_valid = 1u << 0, heading_valid = 1u << 1,
@@ -33,8 +33,10 @@ struct Sample {
     std::uint32_t sweep_run_id{};
     // requested 是引擎当前需求, applied 仅表示该注入分量被 CAN 队列接纳, 都不是实测力矩.
     float sweep_hz{}, requested_excitation_nm{}, applied_excitation_nm{};
+    std::uint8_t sweep_phase{}, sweep_stop{}; // 引擎 Phase/Stop; reason 仍为 APP 执行原因.
 };
-static_assert(sizeof(Sample) == record_size);
+// 内存末尾允许对齐填充; 线上逐字段编码, 不发送填充, 保留每页三条.
+static_assert(sizeof(Sample) == 76);
 static_assert(response_header_size + max_page_records * record_size <= 240);
 
 class Recorder {
@@ -94,6 +96,7 @@ private:
         put16(out, pos, s.flags); put8(out, pos, s.reason); put8(out, pos, s.feedback_age_ms);
         put32(out, pos, s.sweep_run_id); putf(out, pos, s.sweep_hz);
         putf(out, pos, s.requested_excitation_nm); putf(out, pos, s.applied_excitation_nm);
+        put8(out, pos, s.sweep_phase); put8(out, pos, s.sweep_stop);
     }
     std::array<Sample, capacity> samples_{};
     std::uint32_t next_{};

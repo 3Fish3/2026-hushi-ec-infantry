@@ -492,6 +492,8 @@ extern "C" void ec_board_app_commit(std::uint32_t now_ms) {
     }
     s.sweep_run_id = sw.run_id; s.sweep_hz = sw.frequency_hz;
     s.requested_excitation_nm = sw.requested_nm; s.applied_excitation_nm = sw.applied_nm;
+    s.sweep_phase = static_cast<std::uint8_t>(sw.phase);
+    s.sweep_stop = static_cast<std::uint8_t>(sw.stop);
     // M2 用250 Hz记录1kHz控制环; 序号表示记录数, 时戳保留真实控制提交时刻.
     static unsigned sample_divider{};
     if (++sample_divider % 4u == 0) { sweep_capture.push(s); }

@@ -2,7 +2,7 @@
 
 ## 当前实现
 
-> **开发检查点，尚未完成本轮实机验收。** 2026-11-14复核发现终态完成误判、稳态周期数判定和近邻频点混样等问题，当前源码尚未补修。先按[最新交接](../../handoffs/2026-11-14_angle-sweep-next.md)修复并回归，再申请烧录/动力试验；下文命令仅为接口说明，报告中的 `complete/usable` 暂不能作为验收结论。
+> 2026-11-15：交接所列五项 Sweep 软件缺陷已在 `tzh` 修复并补回归，详见[修复记录](../../handoffs/2026-11-15_tzh-sweep-fixes.md)。新采集协议为 schema3，固件与客户端须配套更新；尚未进行本轮烧录或实机验收，软件测试通过不代表云台响应与底盘问题已经消除。
 
 两种试验共用同一个有限时长引擎，均须在**左下＋右下维护模式**下显式 START，运行期间互斥：
 
@@ -11,20 +11,22 @@
 
 原 `0x0A10/0x0A11` 无限正弦参数与 `InfantryCycle::set_sweep()` 已退役；旧参数ID不再枚举，写入返回 unknown_param，不能靠写幅值和切拨杆自动起振。PID参数ID不变。
 
-- 控制1kHz；schema2记录**250Hz**，每条72字节，每页3条、232字节载荷。
+- 控制1kHz；schema3记录**250Hz**，每条74字节，每页3条、238字节载荷。
 - 保留M1的四槽分页FIFO和同一USART1唯一DMA/队列，采集缓存128条、约512ms。
 - USART1/921600/8N1，串口DAP固定by-id `usb-Horco_Horco_CMSIS-DAP_332107148384-if02`。SWD使用另一只DAP `332107148313`，不得交换角色或只靠ttyACM编号选择。
 - 0x37/B7只读采集，0x49是带session/sequence的维护启停消息，二者不是同一类操作。
 - 1–6个0.2–5Hz严格递增频点；每频3–12周期，首尾各一周期线性淡入/淡出；计划总时长≤120s。torque软件幅值上限0.03Nm，angle上限0.2rad（约11.46°），不把这些值当作硬件安全能力证明。
 - 0x49载荷为 `[version=3,type=0x49,session:u32,seq:u32,op:u8,count:u8,cycles:u8,amplitude:f32,hz:f32×count]`；op0取消（count=0），op1幅值单位Nm，op2幅值单位rad。
-- schema2、72字节布局不变；bit7表示running，bit8表示完成/中止锁存，新增bit9 `sweep_angle` 标识角度模式（终态保留，清锁存后清除）。
+- schema3在原72字节末尾追加 `sweep_phase:u8`、`sweep_stop:u8`，完整小端布局为 `<III10fHBBI3fBB`；旧字段偏移不变。bit7表示running，bit8表示完成/中止锁存，bit9 `sweep_angle` 标识角度模式（终态保留，清锁存后清除）。schema1/2客户端不兼容，不能把旧数据按新布局解释。
 - PID、IMU标定、机械齿比和部署限幅不自动改写。
 
 ## 控制资格与终态
 
 右拨杆中挡仍是人工停止；**左下+右下**是维护资格组合，本身不发运动目标。必须持续收到该组合的新鲜DR16帧，且串口维护会话显式持权、存在有效惯性保持目标。
 
-START被接受后，若DM尚未使能，进入arming并通过既有使能流程等待新鲜确认，500ms内未确认则中止；确认后才开始有限时长注入。反馈、IMU、目标、参考代次、遥控维护资格、速度/偏差、控制时步或CAN提交异常均可结束本次试验。现有速度保护为1.5rad/s、偏离START航向保护为0.35rad；角度模式同样适用，高频大幅组合可能因此提前中止。
+START被接受后，若DM尚未使能，进入arming并通过既有使能流程等待新鲜确认，500ms内未确认则中止；确认后才开始有限时长注入。反馈、IMU、目标、参考代次、遥控维护资格、速度/偏差、控制时步或CAN提交异常均可结束本次试验。现有速度保护为1.5rad/s、偏离START航向保护为0.35rad。角度计划在主机打开串口前和MCU受理时都检查每频点 `2πfA≤1.5rad/s`，数值先按线上float32量化；首尾整周期线性包络的峰速也满足这一上界。该校验不提高实测速率保护，也不保证实际闭环一定不超速。
+
+`sweep_phase`：0 idle、1 running、2 complete、3 aborted、4 arming。`sweep_stop`：0 none、1 cancelled、2 authority、3 feedback、4 reference、5 speed、6 deviation、7 clock、8 can_error、9 invalid_plan。`reason` 和报告的 `terminal_reason` 仍是 APP 执行原因，不能替代引擎停止原因；报告另存 `terminal_phase/terminal_stop`。正常完成必须明确收到 phase=2、stop=0，接近预计结束时间的 aborted 仍报告失败。
 
 **完成、中止、取消后都撤输出并锁存，不恢复旧目标保持力矩。** 新的显式START可以重新武装，避免“必须已使能才能START、锁存又不许使能”的互锁。总线无法发送时，disable请求不等于物理停机已实现，仍必须保留物理急停。
 
@@ -60,7 +62,9 @@ mkdir -p .tmp/m2-trial
 
 角度正弦使用同一客户端，把上述参数替换为 `--mode angle --amplitude-rad 0.05 --frequencies 0.5 --cycles 6`，并使用新的输出文件名（例如 `.tmp/m2-trial/new-angle.csv`）；不要同时提供 `--amplitude-nm`。默认仍为torque。单位混用、缺幅值或越界在打开串口前拒绝。
 
-结束后右拨杆回中挡；看报告的`complete`、活性记录数、MCU时间覆盖与`disabled_confirmation.confirmed`。torque报告给中心化航向/速度RMS及请求/提交注入力矩统计，包含淡入淡出。angle报告剔除每频首尾各一个淡入/淡出周期，对目标和实测航向做同频正弦拟合，给出幅值、增益、滞后角与残差；设计上`usable`应要求至少两个完整稳态周期，因此建议每频至少4周期；当前实现误用了整段跨度，这一判定仍待修正。**报告不自动改PID，也不是完整带宽或最优PID结论。**
+结束后右拨杆回中挡；看报告的`complete`、活性记录数、MCU时间覆盖与`disabled_confirmation.confirmed`。torque报告给中心化航向/速度RMS及请求/提交注入力矩统计，包含淡入淡出。angle报告按线上float32频点身份分组，剔除每频首尾各一个淡入/淡出周期，再对目标和实测航向做同频正弦拟合，给出幅值、增益、滞后角与残差。
+
+angle的 `usable` 表示稳态数据与增益可用，要求至少两个稳态周期，并计入250Hz采样边界的量化误差；3周期计划不满足，建议至少4周期。零响应保留近零增益，使用 `phase_identifiable` 单独标识相位是否可辨识；不可辨识时 `phase_deg/lag_deg` 为null。相位判定基于独立同方差残差模型的近似95%幅值不确定度，并非真实噪声与闭环模型的完整统计验证。**报告不自动改PID，也不是完整带宽或最优PID结论。**
 
 ## 首轮已验证的范围
 

@@ -988,10 +988,13 @@ void maintenance_target_sine_runs() {
         };
         CHECK(start(2, 0.201f, ++sequence) == static_cast<unsigned>(ResultCode::invalid_value));
         CHECK(rig.executor.sweep_status().run_id == 0);
-        CHECK(start(2, 0.05f, ++sequence) == 0);
+        // 0.05rad/5Hz理想峰速已超过1.5rad/s, 协议须拒绝且不开始试验.
+        CHECK(start(2, 0.05f, ++sequence) == static_cast<unsigned>(ResultCode::invalid_value));
+        CHECK(rig.executor.sweep_status().run_id == 0);
+        CHECK(start(2, 0.04f, ++sequence) == 0);
         const auto run_id = rig.executor.sweep_status().run_id;
         CHECK(run_id != 0);
-        CHECK(start(2, 0.05f, sequence) == 0); // 重放 ACK 不会重启或重置相位
+        CHECK(start(2, 0.04f, sequence) == 0); // 重放 ACK 不会重启或重置相位
         CHECK(rig.executor.sweep_status().run_id == run_id);
         CHECK(start(1, 0.01f, ++sequence) == static_cast<unsigned>(ResultCode::invalid_value));
         CHECK(rig.executor.sweep_status().run_id == run_id);

@@ -45,12 +45,13 @@ MASK = 0xFFFFFFFF
 def pack_record(sequence: int, timestamp_us: int, reference_epoch: int,
                 floats: list[float] | tuple[float, ...] = (0.0,) * 10,
                 flags: int = 0, reason: int = 0, feedback_age_ms: int = 0,
-                sweep_run_id: int = 0, sweep_fields=(0.0, 0.0, 0.0)) -> bytes:
-    """SYNTHETIC schema 2 记录: '<III10fHBBI3f', 72 B."""
+                sweep_run_id: int = 0, sweep_fields=(0.0, 0.0, 0.0),
+                sweep_phase: int = 0, sweep_stop: int = 0) -> bytes:
+    """SYNTHETIC schema 3 记录: '<III10fHBBI3fBB', 74 B."""
     assert len(floats) == 10 and len(sweep_fields) == 3
-    return struct.pack('<III10fHBBI3f', sequence, timestamp_us, reference_epoch,
+    return struct.pack('<III10fHBBI3fBB', sequence, timestamp_us, reference_epoch,
                        *floats, flags, reason, feedback_age_ms, sweep_run_id,
-                       *sweep_fields)
+                       *sweep_fields, sweep_phase, sweep_stop)
 
 
 def page(schema: int, op: int, count: int, first: int, next_seq: int,
@@ -65,7 +66,7 @@ def delta(a: int, b: int) -> int:
 
 
 class FakeRing:
-    """SYNTHETIC 1 kHz 环形缓存 (schema 2: 容量 128 条): 记录 72 B, 每页最多 3 条."""
+    """SYNTHETIC 1 kHz 环形缓存 (schema 3: 容量 128 条): 记录 74 B, 每页最多 3 条."""
 
     def __init__(self, *, start_seq: int = 0, start_us: int = 0, period_us: int = 1000,
                  epoch: int = 7, capacity: int = 128, flags: int = 0x7f,
@@ -266,62 +267,76 @@ class FakeTransport:
 
 class PacketTests(unittest.TestCase):
     def test_layout(self):
-        # schema 2: 72 B 记录, 页上限 3 条 = 232 B.
-        self.assertEqual(sweep.SCHEMA, 2)
-        self.assertEqual(sweep.RECORD.size, 72)
+        # schema 3: 74 B 记录, 页上限 3 条 = 238 B.
+        self.assertEqual(sweep.SCHEMA, 3)
+        self.assertEqual(sweep.RECORD.size, 74)
         self.assertEqual(sweep.PAGE, 3)
-        self.assertEqual(sweep.RECORD.format, '<III10fHBBI3f')
-        self.assertEqual(sweep.HEADER.size + 3 * sweep.RECORD.size, 232)
-        self.assertEqual(sweep.FIELDS[-4:], ('sweep_run_id', 'sweep_hz',
+        self.assertEqual(sweep.RECORD.format, '<III10fHBBI3fBB')
+        self.assertEqual(sweep.HEADER.size + 3 * sweep.RECORD.size, 238)
+        self.assertEqual(sweep.FIELDS[-6:], ('sweep_run_id', 'sweep_hz',
                                             'requested_excitation_nm',
-                                            'applied_excitation_nm'))
+                                            'applied_excitation_nm', 'sweep_phase', 'sweep_stop'))
         self.assertEqual(sweep.FLAG_NAMES[7:],
                          ('sweep_running', 'sweep_inhibited', 'sweep_angle'))
-        # 记录布局未变, 仅新增 flag 位: 已知有效位上限为 0x3ff.
+        # 新字段追加在记录末尾, 有效位上限仍为 0x3ff.
         self.assertLessEqual((1 << len(sweep.FLAG_NAMES)) - 1, 0x3FF)
 
     def test_page(self):
-        row = pack_record(4, 1000, 10, [1.5] * 10, 0b111, 0, 2, 9, (40.0, 0.3, 0.2))
-        decoded = sweep.decode_page(page(2, 1, 1, 4, 5, 4, row), 1)
+        row = pack_record(4, 1000, 10, [1.5] * 10, 0b111, 13, 2, 9, (40.0, 0.3, 0.2), 3, 5)
+        decoded = sweep.decode_page(page(3, 1, 1, 4, 5, 4, row), 1)
         self.assertEqual(decoded['rows'][0]['sequence'], 4)
         self.assertAlmostEqual(decoded['rows'][0]['dm_velocity_rad_s'], 1.5)
         self.assertEqual(decoded['rows'][0]['feedback_age_ms'], 2)
         self.assertEqual(decoded['rows'][0]['sweep_run_id'], 9)
+        self.assertEqual(decoded['rows'][0]['reason'], 13)
+        self.assertEqual(decoded['rows'][0]['sweep_phase'], 3)
+        self.assertEqual(decoded['rows'][0]['sweep_stop'], 5)
         self.assertAlmostEqual(decoded['rows'][0]['sweep_hz'], 40.0)
         self.assertAlmostEqual(decoded['rows'][0]['applied_excitation_nm'], 0.2)
 
     def test_reject_bad_size(self):
         with self.assertRaises(sweep.CaptureError):
-            sweep.decode_page(page(2, 1, 1, 4, 5, 4), 1)
-        with self.assertRaises(sweep.CaptureError):  # 4 条已超出 schema 2 的页上限
-            sweep.decode_page(page(2, 1, 4, 4, 8, 4, pack_record(4, 0, 10)), 1)
+            sweep.decode_page(page(3, 1, 1, 4, 5, 4), 1)
+        with self.assertRaises(sweep.CaptureError):  # 4 条已超出 schema 3 的页上限
+            sweep.decode_page(page(3, 1, 4, 4, 8, 4, pack_record(4, 0, 10)), 1)
 
     def test_reject_gap(self):
         # 页内记录序号出现空洞: 声称 first=8 但记录实际是 9.
         row = pack_record(9, 1000, 10)
         with self.assertRaises(sweep.CaptureError):
-            sweep.decode_page(page(2, 1, 1, 8, 9, 4, row), 1)
+            sweep.decode_page(page(3, 1, 1, 8, 9, 4, row), 1)
         # 页头窗口本身越界同样拒绝.
         with self.assertRaises(sweep.CaptureError):
-            sweep.decode_page(page(2, 1, 1, 8, 9, 10, pack_record(8, 1000, 10)), 1)
+            sweep.decode_page(page(3, 1, 1, 8, 9, 10, pack_record(8, 1000, 10)), 1)
 
     def test_reject_bounds_and_identity(self):
-        empty = page(2, 1, 0, 4, 4, 4)
+        empty = page(3, 1, 0, 4, 4, 4)
         self.assertEqual(sweep.decode_page(empty, 1)['next'], 4)
         with self.assertRaises(sweep.CaptureError):  # first 4 < earliest 5
-            sweep.decode_page(page(2, 1, 0, 4, 4, 5), 1)
+            sweep.decode_page(page(3, 1, 0, 4, 4, 5), 1)
         with self.assertRaises(sweep.CaptureError):  # 声称的 count 超出 next
-            sweep.decode_page(page(2, 1, 2, 5, 4, 0), 1)
+            sweep.decode_page(page(3, 1, 2, 5, 4, 0), 1)
         with self.assertRaises(sweep.CaptureError):  # op 不符
             sweep.decode_page(empty, 0)
         with self.assertRaises(sweep.CaptureError):  # schema 1 已过期
             sweep.decode_page(page(1, 1, 0, 4, 4, 4), 1)
 
+    def test_old_schema_and_all_stop_reasons(self):
+        # 旧协议即使空页也明确拒绝, 不误将 APP reason 当成 Sweep stop.
+        with self.assertRaises(sweep.CaptureError):
+            sweep.decode_page(page(2, 1, 0, 4, 4, 4), 1)
+        for phase, stop in [(2, 0)] + [(3, stop) for stop in range(1, 10)]:
+            raw = pack_record(4, 1000, 10, reason=13,
+                              sweep_phase=phase, sweep_stop=stop)
+            row = sweep.decode_page(page(3, 1, 1, 4, 5, 4, raw), 1)['rows'][0]
+            self.assertEqual((row['reason'], row['sweep_phase'], row['sweep_stop']),
+                             (13, phase, stop))
+
     def test_status_page_must_be_empty_at_next(self):
-        ok = page(2, 0, 0, 9, 9, 2)
+        ok = page(3, 0, 0, 9, 9, 2)
         self.assertEqual(sweep.decode_page(ok, 0)['next'], 9)
         with self.assertRaises(sweep.CaptureError):
-            sweep.decode_page(page(2, 0, 1, 9, 9, 2, pack_record(9, 0, 1)), 0)
+            sweep.decode_page(page(3, 0, 1, 9, 9, 2, pack_record(9, 0, 1)), 0)
 
     def test_validity_bits_guard_floats(self):
         row = dict.fromkeys(sweep.FIELDS, 0)
@@ -340,7 +355,7 @@ class BaselineTests(unittest.TestCase):
 
     def test_status_and_page_decode(self):
         decoded = sweep.decode_page(page(
-            2, 1, 2, 126, 130, 2,
+            3, 1, 2, 126, 130, 2,
             b''.join(pack_record(seq, seq * 1000, 1,
                                  [seq + i * 0.5 for i in range(10)], 0x7f, 0, 1)
                      for seq in (126, 127))), 1)
@@ -374,6 +389,8 @@ class GoldenTests(unittest.TestCase):
         self.assertEqual(len(set(values)), len(values))
         for row in decoded['rows']:
             self.assertTrue(row['flags'] & 0x7f)
+            self.assertEqual((row['reason'], row['sweep_phase'], row['sweep_stop']),
+                             (13, 3, 5))
             sweep.validate_sample(row)
         self.assertEqual(decoder.rejected, 0)
 
@@ -474,7 +491,7 @@ class CollectTests(unittest.TestCase):
         self.addCleanup(directory.cleanup)
         path = Path(directory.name) / 'gap.csv'
         with self.assertRaises(sweep.CaptureError) as caught:
-            # 覆盖 128 条环形容量 (schema 2): 一次跳跃必须超过 128 条才产生真实缺口.
+            # 覆盖 128 条环形容量 (schema 3): 一次跳跃必须超过 128 条才产生真实缺口.
             sweep.collect(FakeTransport(FakeRing(), jump_after_pages=1, jump=200),
                           path, 0.5, request_timeout=0.2, stall_timeout=0.2)
         self.assertIn('data gap', str(caught.exception))

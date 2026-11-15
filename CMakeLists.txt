@@ -294,8 +294,9 @@ if(EC_BUILD_TESTS)
     add_executable(ec_monitor_tests tests/monitor_tests.cpp)
     target_link_libraries(ec_monitor_tests PRIVATE ec::core)
     target_compile_options(ec_monitor_tests PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
+    # CTest在构建目录运行; 避免Windows窄字符argv转换中文绝对路径失败.
     add_test(NAME monitor_registry_contracts COMMAND ec_monitor_tests
-        "${CMAKE_CURRENT_BINARY_DIR}/monitor_artifacts")
+        monitor_artifacts)
     if(Python3_Interpreter_FOUND)
         # 串口载荷与假 SWD 内存必须得到同一份逻辑值; 另含只读自检 (不连物理探针).
         add_test(NAME monitor_swd_contracts COMMAND "${Python3_EXECUTABLE}"

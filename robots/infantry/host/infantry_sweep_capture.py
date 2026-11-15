@@ -21,10 +21,10 @@ import infantry_client as wire
 
 REQUEST = 0x37
 RESPONSE = 0xB7
-SCHEMA = 2
+SCHEMA = 3
 HEADER = struct.Struct('<BBBBIII')
-# schema 2: '<III10fHBBI3f' — 记录末尾追加 sweep 运行标识与激励字段.
-RECORD = struct.Struct('<III10fHBBI3f')
+# schema 3: 末尾追加引擎 Phase/Stop, APP reason 保留原义, 不发送内存对齐填充.
+RECORD = struct.Struct('<III10fHBBI3fBB')
 FIELDS = (
     'sequence', 'timestamp_us', 'reference_epoch',
     'target_heading_rad', 'heading_rad', 'heading_rate_rad_s',
@@ -32,6 +32,7 @@ FIELDS = (
     'torque_feedback_nm', 'speed_target_rad_s', 'speed_p_nm', 'speed_i_nm',
     'flags', 'reason', 'feedback_age_ms',
     'sweep_run_id', 'sweep_hz', 'requested_excitation_nm', 'applied_excitation_nm',
+    'sweep_phase', 'sweep_stop',
 )
 FLOAT_FIELDS = FIELDS[3:13] + FIELDS[17:20]
 # 与 infantry_sweep_capture.hpp 的 Flag 位一一对应; 有效性由 flags 表达, 不用 0/NaN 代替.
@@ -46,11 +47,11 @@ VALIDITY_FIELDS = {
     'torque_command_nm': 1 << 4,
     'speed_target_rad_s': 1 << 5, 'speed_p_nm': 1 << 5, 'speed_i_nm': 1 << 5,
 }
-assert HEADER.size == 16 and RECORD.size == 72
-assert HEADER.size + 3 * RECORD.size == 232
+assert HEADER.size == 16 and RECORD.size == 74
+assert HEADER.size + 3 * RECORD.size == 238
 
 INFLIGHT = 4      # 固件固定 4 槽在途 FIFO: 同时未应答的请求上限
-PAGE = 3          # 每页最多 3 条记录 (232 B 上限)
+PAGE = 3          # 每页最多 3 条记录 (238 B 上限)
 PREFILL_S = 0.016  # 16 ms ≈ 4 条 @250 Hz, 远小于 128 条 (512 ms) 环形深度
 DRAIN_SETTLE_S = 0.1  # 结束后有界排空在途应答, 避免遗留 B7 被后续 HELLO 交换误读
 RETRY_AFTER_S = 0.05  # 4 槽 FIFO 不覆盖旧应答: 丢应答必须短于 512 ms 环形深度就重发
