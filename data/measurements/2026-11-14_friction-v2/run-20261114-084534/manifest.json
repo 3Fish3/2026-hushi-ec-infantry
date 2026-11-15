@@ -1,0 +1,58 @@
+{
+  "classification": "real_hardware",
+  "firmware_elf_sha256": "d57dcb07da6d7d706a1f700ba438c86156a57cdaf97b4046ea1c16e1db132863",
+  "parameters": {
+    "angle_kp": 3,
+    "angle_kd": 0,
+    "speed_kp": 0.6,
+    "friction_nm": 0.25,
+    "friction_speed_rad_s": 0.05
+  },
+  "trial": {
+    "frequency_hz": 0.3,
+    "amplitude_rad": 0.1,
+    "cycles": 6
+  },
+  "files": [
+    {
+      "path": "trial.csv",
+      "bytes": 1233367,
+      "sha256": "acbc95a902dd42f317b354a9e4b67add012e25f0eff79e645aca06c489895e09"
+    },
+    {
+      "path": "trial.csv.report.json",
+      "bytes": 1250,
+      "sha256": "d01214d160db1cf0a6b373ce1db14cc80d9909ddcc01f2c99a286fd05b250cde"
+    },
+    {
+      "path": "preflight.json",
+      "bytes": 13537,
+      "sha256": "2da990f5e09dde736bfc64c26bb7defbfcabe9238267318487cafb6e6af91c3b"
+    },
+    {
+      "path": "postflight.json",
+      "bytes": 9449,
+      "sha256": "c0ac9ebab4fa9a98f1d9401e824fa3c19774cb86a5134cc540b6f982d92a4428"
+    },
+    {
+      "path": "quality.json",
+      "bytes": 1673,
+      "sha256": "b5fde0c1258d7ba5f209e829336ff225fdb1b091fb9a818d91c6d32ba726a70c"
+    },
+    {
+      "path": "cycle-analysis.json",
+      "bytes": 1820,
+      "sha256": "c191c9bcd84a57e21b6eda23d12de6fef41126a2d8c0ffdd74544f2ccd6a1c42"
+    },
+    {
+      "path": "comparison-kp2-kp3.json",
+      "bytes": 1604,
+      "sha256": "740255f260d55d7407b943307f26181a0ee0da21015fcfe20afea8253d9ddde1"
+    },
+    {
+      "path": "write-and-readback.json",
+      "bytes": 17988,
+      "sha256": "3ae583f33ecb2b8e92b5eaddb55c2bae835d12458c2ac56150276710f1d5d3c7"
+    }
+  ]
+}

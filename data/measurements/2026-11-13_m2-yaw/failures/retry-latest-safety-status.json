@@ -1,0 +1,28 @@
+{
+  "time": 1794594173.3778322,
+  "source": "none",
+  "authority": false,
+  "manual_stop": false,
+  "executing": [],
+  "dm": [
+    {
+      "slot": 9,
+      "domain": "main_yaw",
+      "installed": true,
+      "online": true,
+      "enabled": false,
+      "faulted": false,
+      "assembled": true,
+      "bus": 1,
+      "protocol": 128,
+      "device_id": 5,
+      "feedback_id": 5,
+      "age_ms": 16,
+      "velocity_rad_s": -0.007326007355004549,
+      "effort": 0.0024420025292783976,
+      "effort_unit": "Nm",
+      "temperature_c": 28,
+      "rotor_temperature_c": 26
+    }
+  ]
+}

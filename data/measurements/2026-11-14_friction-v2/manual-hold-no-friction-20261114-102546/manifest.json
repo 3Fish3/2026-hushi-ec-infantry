@@ -1,0 +1,26 @@
+{
+  "classification": "operator_feedback_with_real_parameter_readbacks",
+  "firmware_elf_sha256": "d57dcb07da6d7d706a1f700ba438c86156a57cdaf97b4046ea1c16e1db132863",
+  "files": [
+    {
+      "path": "prior-friction-enabled-state.json",
+      "bytes": 13555,
+      "sha256": "7f5bd106f640bd5ac6265e10a08c4ec538262216b71c924cb26332cfd1c9d65a"
+    },
+    {
+      "path": "reset-defaults-no-write.json",
+      "bytes": 11509,
+      "sha256": "b5f34d4ecba1b847dd204ca07dfd9bad01ada186da75101afd2d48ab01e1fd09"
+    },
+    {
+      "path": "restore-pid-friction-off.json",
+      "bytes": 18314,
+      "sha256": "45222b9f8f5adac01be3acf90570e466c358acec03e9795ab155dbc4a3713a57"
+    },
+    {
+      "path": "operator-feedback.json",
+      "bytes": 883,
+      "sha256": "fbc730b2b6808b2b491b8a58e3cbb2ac2752f2f039ff0838fac269316b575c5f"
+    }
+  ]
+}

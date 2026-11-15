@@ -109,7 +109,8 @@ bool InfantryHostSession::non_idempotent_request(MessageType type) noexcept {
     case MessageType::targets:
     case MessageType::align:
     case MessageType::param_write:
-    case MessageType::permit: return true;
+    case MessageType::permit:
+    case MessageType::sweep: return true;
     default: return false;
     }
 }
@@ -270,7 +271,7 @@ std::size_t InfantryHostSession::handle_targets(std::span<std::uint8_t> response
         const auto value = r.f32();
         const auto age_ms = r.u16();
         if (domain >= domain_count || !mode_allowed_for(static_cast<Domain>(domain),
-                static_cast<control::ControlMode>(mode))) {
+                static_cast<control::ControlMode>(mode), app_->config().infantry_controls)) {
             bad = true;
             continue;
         }
@@ -653,10 +654,11 @@ std::size_t InfantryHostSession::handle_diagnostics(std::span<std::uint8_t> resp
                     velocity = state.velocity_rad_s.value;
                 }
             } else {
-                const auto& c = app_->config().dm[0];
+                const auto dm_slot = i - dji_slot_count;
+                const auto& c = app_->config().dm[dm_slot];
                 domain = static_cast<std::uint8_t>(c.domain); flags = c.installed ? 1u : 0u;
                 bus = c.bus; protocol = 128; device_id = c.can_id.value_or(0); feedback_id = c.master_id.value_or(0);
-                auto* device = executor_ ? executor_->dm_device() : nullptr;
+                auto* device = executor_ ? executor_->dm_device(dm_slot) : nullptr;
                 if (device) {
                     flags |= 128u;
                     const auto state = device->state();
@@ -705,6 +707,47 @@ std::size_t InfantryHostSession::handle_diagnostics(std::span<std::uint8_t> resp
         }
     }
     return w.overflow ? 0 : w.size();
+}
+
+// 激励启停请求: 版本/类型/session/seq/op/count/cycles/amplitude, 后接 count 个 f32 频率.
+// op 0 = 取消, op 1 = 力矩启动(N·m), op 2 = 角度启动(rad); 均要求当前维护会话持权.
+std::size_t InfantryHostSession::handle_sweep(std::span<std::uint8_t> response,
+    std::span<const std::uint8_t> payload, Tick now) noexcept {
+    PayloadReader r{payload};
+    static_cast<void>(r.u8()); // 版本
+    static_cast<void>(r.u8()); // 类型
+    const auto session = r.u32();
+    const auto seq = r.u32();
+    const auto op = r.u8();
+    const auto count = r.u8();
+    const auto cycles = r.u8();
+    const auto amplitude = r.f32();
+    sweep::Plan plan{};
+    plan.count = count; plan.cycles = cycles;
+    if (op == 2) { plan.mode = sweep::Mode::angle; plan.amplitude_rad = amplitude; }
+    else { plan.amplitude_nm = amplitude; }
+    if (count <= plan.hz.size()) {
+        for (unsigned i = 0; i < count; ++i) { plan.hz[i] = r.f32(); }
+    }
+    if (!r.exact()) { return ack(MessageType::ack, session, seq, ResultCode::bad_length, 0, response); }
+    const auto check = check_session(session, seq, true, now);
+    if (!check.proceed) { return ack(MessageType::ack, session, seq, check.code, 0, response); }
+    // 激励属于运动授权: 必须来自当前持权的维护来源, 且未处于人工停止.
+    if (role_source_ != Source::maintenance || !requester_holds() ||
+        app_->snapshot().permission.manual_stop || !executor_) {
+        return ack(MessageType::ack, session, seq, ResultCode::not_permitted, 0, response);
+    }
+    if (op == 0 && count == 0) {
+        executor_->cancel_sweep();
+    } else if ((op == 1 || op == 2) && sweep::Engine::valid_plan(plan) &&
+        executor_->start_sweep(plan, now, *app_)) {
+        // 已受理; 执行层仍按每个周期的保护条件决定是否继续.
+    } else {
+        return ack(MessageType::ack, session, seq, ResultCode::invalid_value, 0, response);
+    }
+    ++accepted_commands_;
+    accept_activity(now);
+    return ack(MessageType::ack, session, seq, ResultCode::accepted, 0, response);
 }
 
 // 参数写入只经过一个入口: 生效事务负责落到运行对象并从运行对象读回实际值.
@@ -769,6 +812,7 @@ std::size_t InfantryHostSession::handle(std::span<const std::uint8_t> request, T
     case MessageType::param_read: size = handle_param_read(response, request, now); break;
     case MessageType::param_write: size = handle_param_write(response, request, now); break;
     case MessageType::permit: size = handle_permit(response, request, now); break;
+    case MessageType::sweep: size = handle_sweep(response, request, now); break;
     case MessageType::status: size = handle_status(response, request, now); break;
     case MessageType::diagnostics: size = handle_diagnostics(response, request, now); break;
     default:

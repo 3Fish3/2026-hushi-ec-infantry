@@ -22,6 +22,7 @@ using app::DjiSlot;
 using app::DmSlot;
 using app::InfantryConfig;
 using app::dji_slot_count;
+using app::dm_slot_count;
 // 记录原始帧的软件总线. 不模拟总线时序/仲裁/错误帧, 但可以拒绝发送以验证背压路径:
 // 拒绝时返回 busy, 调用方必须把它当作"没发出去"而不是"已到达电调".
 struct SoftwareBus : transport::CanTx {
@@ -124,6 +125,7 @@ struct SimPlant {
 
     std::array<Axis, dji_slot_count> dji{};
     Axis dm{};
+    Axis dm_pitch{}; // 第二颗达妙 (丝杆 pitch); 仅反馈接入阶段不产生命令响应
     Load load{};
     // 外部扰动入口: 夹具外力 (rad/s² 等效加速度) 与达妙外力矩, 用于验证位置环抵抗
     // 扰动而不是"只跟随自己发出的命令".
@@ -167,24 +169,26 @@ struct SimPlant {
             axis.velocity_rad_s += accel * dt_s;
             axis.position_rad += axis.velocity_rad_s * dt_s;
         }
-        const auto& slot = config.dm[0];
-        if (slot.installed && slot.limits && slot.can_id && slot.master_id) {
+        for (std::size_t index = 0; index < dm_slot_count; ++index) {
+            const auto& slot = config.dm[index];
+            if (!slot.installed || !slot.limits || !slot.can_id || !slot.master_id) { continue; }
+            auto& dm_axis = index == 0 ? dm : dm_pitch;
             const auto& bus = slot.bus == 1 ? bus1 : bus2;
             const auto command = last_dm_command(slot, bus);
             float accel = 0.0f;
             const auto decoded = command ? decode_dm_mit_command(*command, *slot.limits) : std::nullopt;
             if (decoded) {
-                const float error = decoded->position_rad - dm.position_rad;
-                const float damping = decoded->velocity_rad_s - dm.velocity_rad_s;
+                const float error = decoded->position_rad - dm_axis.position_rad;
+                const float damping = decoded->velocity_rad_s - dm_axis.velocity_rad_s;
                 accel = (decoded->kp * error + decoded->kd * damping + decoded->torque_nm -
-                            load.dm_damping * dm.velocity_rad_s + dm_external_torque_nm) /
+                            load.dm_damping * dm_axis.velocity_rad_s + dm_external_torque_nm) /
                     load.dm_inertia;
             } else {
                 // 没有命令时不产生保持力矩: 只有阻尼 (不假装电机仍在保持).
-                accel = -load.dm_damping * dm.velocity_rad_s / load.dm_inertia;
+                accel = -load.dm_damping * dm_axis.velocity_rad_s / load.dm_inertia;
             }
-            dm.velocity_rad_s += accel * dt_s;
-            dm.position_rad += dm.velocity_rad_s * dt_s;
+            dm_axis.velocity_rad_s += accel * dt_s;
+            dm_axis.position_rad += dm_axis.velocity_rad_s * dt_s;
         }
     }
 
@@ -217,10 +221,14 @@ struct SimPlant {
             frame.data[6] = 40; // 温度字段: 夹具值
             route(entry.bus, frame, now);
         }
-        const auto& slot = config.dm[0];
-        if (slot.installed && slot.limits && slot.can_id && slot.master_id && dm.emitting) {
-            const auto position = drivers::dm_encode_position(*slot.limits, dm.position_rad);
-            const auto velocity = drivers::dm_encode_velocity(*slot.limits, dm.velocity_rad_s);
+        for (std::size_t index = 0; index < dm_slot_count; ++index) {
+            const auto& slot = config.dm[index];
+            const auto& dm_axis = index == 0 ? dm : dm_pitch;
+            if (!slot.installed || !slot.limits || !slot.can_id || !slot.master_id || !dm_axis.emitting) {
+                continue;
+            }
+            const auto position = drivers::dm_encode_position(*slot.limits, dm_axis.position_rad);
+            const auto velocity = drivers::dm_encode_velocity(*slot.limits, dm_axis.velocity_rad_s);
             const auto torque = drivers::dm_encode_torque(*slot.limits, load.dm_feedback_torque_nm);
             if (!position || !velocity || !torque) { return; }
             const auto status = dm_reports_fault ? std::uint8_t{0x8}
@@ -245,6 +253,7 @@ struct SimPlant {
     void reset() noexcept {
         for (auto& axis : dji) { axis = Axis{}; }
         dm = Axis{};
+        dm_pitch = Axis{};
         external_accel.fill(0.0f);
         dm_external_torque_nm = 0.0f;
     }

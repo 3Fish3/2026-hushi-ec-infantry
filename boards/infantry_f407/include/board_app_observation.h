@@ -10,7 +10,7 @@ extern "C" {
 // 域数与应用层 ec::infantry::app::domain_count 一致: 四轮 + 主/从 yaw + pitch + 两摩擦 + 拨弹.
 #define EC_APP_DOMAIN_COUNT 10
 #define EC_APP_DJI_SLOT_COUNT 9
-#define EC_APP_DM_SLOT_COUNT 1
+#define EC_APP_DM_SLOT_COUNT 2
 struct EcAppDomainObservation {
     uint8_t validity;   // app::DomainValidity
     uint8_t mode;       // control::ControlMode (与执行状态分开)

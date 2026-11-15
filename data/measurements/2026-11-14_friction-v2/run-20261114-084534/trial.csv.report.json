@@ -1,0 +1,46 @@
+{
+  "tool": "infantry_sweep_trial",
+  "schema": 2,
+  "complete": true,
+  "mode": "angle",
+  "amplitude": 0.1,
+  "amplitude_unit": "rad",
+  "frequencies": [
+    0.3
+  ],
+  "cycles": 6,
+  "duration_s": 20.0,
+  "target_heading_rad": 0.3871054947376251,
+  "port": "/dev/serial/by-id/usb-Horco_Horco_CMSIS-DAP_332107148384-if02",
+  "baud": 921600,
+  "elf_sha256": "d57dcb07da6d7d706a1f700ba438c86156a57cdaf97b4046ea1c16e1db132863",
+  "note": "angle mode: 逐频点正弦航向响应的幅值与滞后, 不构成全带宽辨识或最优 PID 结论",
+  "identity": "infantry_app",
+  "records": 5000,
+  "sweep_run_id": 4,
+  "mcu_span_us": 19999888,
+  "expected_us": 20000000,
+  "terminal_flags": 839,
+  "terminal_reason": 0,
+  "frequencies_report": [
+    {
+      "hz": 0.3,
+      "samples": 5000,
+      "steady_samples": 3332,
+      "target_amp_rad": 0.10000000080943525,
+      "heading_amp_rad": 0.05613627714535635,
+      "gain": 0.5613627669096954,
+      "residual_rms_rad": 0.005689179948096612,
+      "phase_deg": 39.14622400600587,
+      "lag_deg": 39.14622400600587,
+      "usable": true
+    }
+  ],
+  "disabled_confirmation": {
+    "flags": 774,
+    "feedback_fresh": true,
+    "dm_enabled": false,
+    "authority": false,
+    "confirmed": true
+  }
+}

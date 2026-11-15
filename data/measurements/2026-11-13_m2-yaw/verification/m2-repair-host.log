@@ -1,0 +1,141 @@
+$ cmake --build build/host -j4
+[0/1] Re-running CMake...
+-- Configuring done (0.1s)
+-- Generating done (0.0s)
+-- Build files have been written to: /home/kekeyuyu/projects/步兵/infantry/build/host
+[1/35] Building CXX object CMakeFiles/ec_infantry_sweep_excitation_tests.dir/tests/infantry_sweep_excitation_tests.cpp.o
+[2/35] Building CXX object CMakeFiles/ec_infantry_app_tests.dir/tests/infantry_app_tests.cpp.o
+[3/35] Building CXX object CMakeFiles/ec_infantry_sweep_capture_tests.dir/tests/infantry_sweep_capture_tests.cpp.o
+[4/35] Building CXX object CMakeFiles/ec_infantry_authority_tests.dir/tests/infantry_app_authority_tests.cpp.o
+[5/35] Building CXX object CMakeFiles/ec_infantry_app.dir/robots/infantry/app/infantry_execution.cpp.o
+[6/35] Linking CXX static library libec_infantry_app.a
+[7/35] Building CXX object CMakeFiles/ec_infantry_serial_tests.dir/tests/infantry_serial_tests.cpp.o
+[8/35] Building CXX object CMakeFiles/ec_infantry_replay.dir/examples/infantry_replay.cpp.o
+[9/35] Building CXX object CMakeFiles/ec_infantry_execution_tests.dir/tests/infantry_app_execution_tests.cpp.o
+[10/35] Building CXX object CMakeFiles/ec_infantry_perception_tests.dir/tests/infantry_app_perception_tests.cpp.o
+[11/35] Building CXX object CMakeFiles/ec_infantry_board_config_tests.dir/tests/infantry_app_board_config_tests.cpp.o
+[12/35] Building CXX object CMakeFiles/ec_infantry_remote_tests.dir/tests/infantry_app_remote_tests.cpp.o
+[13/35] Building CXX object CMakeFiles/ec_infantry_inertial_tests.dir/tests/infantry_inertial_tests.cpp.o
+[14/35] Building CXX object CMakeFiles/ec_infantry_cycle_tests.dir/tests/infantry_app_cycle_tests.cpp.o
+[15/35] Linking CXX executable ec_infantry_deployment_tests
+[16/35] Linking CXX executable ec_infantry_direction_tests
+[17/35] Linking CXX executable ec_infantry_sweep_capture_tests
+[18/35] Building CXX object CMakeFiles/ec_infantry_protocol_tests.dir/tests/infantry_app_protocol_tests.cpp.o
+[19/35] Linking CXX executable ec_infantry_sweep_excitation_tests
+[20/35] Linking CXX executable ec_infantry_app_tests
+[21/35] Linking CXX executable ec_infantry_authority_tests
+[22/35] Linking CXX executable ec_infantry_serial_tests
+[23/35] Linking CXX executable ec_infantry_execution_tests
+[24/35] Linking CXX executable ec_infantry_inertial_tests
+[25/35] Linking CXX executable ec_infantry_replay
+[26/35] Linking CXX executable ec_infantry_perception_tests
+[27/35] Linking CXX executable ec_infantry_remote_tests
+[28/35] Linking CXX executable ec_infantry_protocol_tests
+[29/35] Linking CXX executable ec_infantry_board_config_tests
+[30/35] Linking CXX executable ec_infantry_cycle_tests
+[31/35] Building CXX object CMakeFiles/ec_infantry_system_tests.dir/tests/infantry_app_system_tests.cpp.o
+[32/35] Building CXX object CMakeFiles/ec_infantry_app_host.dir/examples/infantry_app_host_link.cpp.o
+[33/35] Linking CXX executable ec_infantry_system_tests
+[34/35] Linking CXX executable ec_infantry_app_host
+
+exit=0
+$ ctest --test-dir build/host --output-on-failure -j4
+Test project /home/kekeyuyu/projects/步兵/infantry/build/host
+      Start 37: monitor_registry_contracts
+      Start 30: infantry_sweep_capture_client_contracts
+      Start 36: motor_bench_client_contracts
+      Start 32: yaw_gear_fit_contracts
+ 1/46 Test #37: monitor_registry_contracts ................   Passed    0.00 sec
+      Start 35: infantry_host_client_contracts
+ 2/46 Test #32: yaw_gear_fit_contracts ....................   Passed    0.75 sec
+      Start 39: monitor_swd_selftest
+ 3/46 Test #30: infantry_sweep_capture_client_contracts ...   Passed    1.15 sec
+      Start 34: board_monitor_contracts
+ 4/46 Test #35: infantry_host_client_contracts ............   Passed    1.87 sec
+      Start 33: infantry_raw_calibration_contracts
+ 5/46 Test #33: infantry_raw_calibration_contracts ........   Passed    0.47 sec
+      Start 40: gm6020_identification_contracts
+ 6/46 Test #40: gm6020_identification_contracts ...........   Passed    0.45 sec
+      Start 29: infantry_capture_client_contracts
+ 7/46 Test #29: infantry_capture_client_contracts .........   Passed    0.12 sec
+      Start 16: infantry_inertial_contracts
+ 8/46 Test #39: monitor_swd_selftest ......................   Passed    2.17 sec
+      Start 38: monitor_swd_contracts
+ 9/46 Test #16: infantry_inertial_contracts ...............   Passed    0.04 sec
+      Start 41: doc_link_contracts
+10/46 Test #38: monitor_swd_contracts .....................   Passed    0.05 sec
+      Start 21: infantry_app_system_contracts
+11/46 Test #21: infantry_app_system_contracts .............   Passed    0.02 sec
+      Start 25: attitude_contracts
+12/46 Test #34: board_monitor_contracts ...................   Passed    1.84 sec
+      Start 15: infantry_serial_contracts
+13/46 Test #15: infantry_serial_contracts .................   Passed    0.01 sec
+      Start  7: core_contracts
+14/46 Test #25: attitude_contracts ........................   Passed    0.03 sec
+      Start  3: infantry_direction_contracts
+15/46 Test #41: doc_link_contracts ........................   Passed    0.06 sec
+      Start  4: infantry_sweep_capture_contracts
+16/46 Test  #7: core_contracts ............................   Passed    0.01 sec
+      Start 42: sil_contracts
+17/46 Test  #4: infantry_sweep_capture_contracts ..........   Passed    0.00 sec
+      Start 27: gm6020_bench_contracts
+18/46 Test #42: sil_contracts .............................   Passed    0.01 sec
+      Start 19: infantry_app_protocol_contracts
+19/46 Test #27: gm6020_bench_contracts ....................   Passed    0.01 sec
+      Start 17: infantry_app_perception_contracts
+20/46 Test #19: infantry_app_protocol_contracts ...........   Passed    0.00 sec
+      Start 14: infantry_app_execution_contracts
+21/46 Test #17: infantry_app_perception_contracts .........   Passed    0.00 sec
+      Start 22: infantry_app_cycle_contracts
+22/46 Test #14: infantry_app_execution_contracts ..........   Passed    0.00 sec
+      Start  1: rtt_contracts
+23/46 Test #22: infantry_app_cycle_contracts ..............   Passed    0.00 sec
+      Start 13: infantry_app_authority_contracts
+24/46 Test  #1: rtt_contracts .............................   Passed    0.00 sec
+      Start 20: infantry_app_board_config_contracts
+25/46 Test #13: infantry_app_authority_contracts ..........   Passed    0.00 sec
+      Start 18: infantry_app_remote_contracts
+26/46 Test #20: infantry_app_board_config_contracts .......   Passed    0.00 sec
+      Start  6: infantry_capture_contracts
+27/46 Test #18: infantry_app_remote_contracts .............   Passed    0.00 sec
+      Start 12: infantry_app_config_contracts
+28/46 Test  #6: infantry_capture_contracts ................   Passed    0.00 sec
+      Start  8: control_contracts
+29/46 Test #12: infantry_app_config_contracts .............   Passed    0.00 sec
+      Start  9: axis_contracts
+30/46 Test  #8: control_contracts .........................   Passed    0.00 sec
+      Start 23: assembly_routing_contracts
+31/46 Test  #9: axis_contracts ............................   Passed    0.00 sec
+      Start  2: infantry_deployment_contracts
+32/46 Test #23: assembly_routing_contracts ................   Passed    0.00 sec
+      Start 46: link_example
+33/46 Test  #2: infantry_deployment_contracts .............   Passed    0.00 sec
+      Start 28: uart_frame_contracts
+34/46 Test #46: link_example ..............................   Passed    0.00 sec
+      Start 26: omni_kinematics_contracts
+35/46 Test #28: uart_frame_contracts ......................   Passed    0.00 sec
+      Start 43: assembly_example
+36/46 Test #26: omni_kinematics_contracts .................   Passed    0.00 sec
+      Start 44: single_axis_example
+37/46 Test #43: assembly_example ..........................   Passed    0.00 sec
+      Start 11: session_authority_contracts
+38/46 Test #44: single_axis_example .......................   Passed    0.00 sec
+      Start 10: dm_contracts
+39/46 Test #11: session_authority_contracts ...............   Passed    0.00 sec
+      Start 24: dr16_input_contracts
+40/46 Test #10: dm_contracts ..............................   Passed    0.00 sec
+      Start 45: app_assembly_example
+41/46 Test #24: dr16_input_contracts ......................   Passed    0.00 sec
+      Start  5: infantry_sweep_excitation_contracts
+42/46 Test #45: app_assembly_example ......................   Passed    0.00 sec
+      Start 31: infantry_sweep_trial_contracts
+43/46 Test  #5: infantry_sweep_excitation_contracts .......   Passed    0.00 sec
+44/46 Test  #3: infantry_direction_contracts ..............   Passed    0.17 sec
+45/46 Test #36: motor_bench_client_contracts ..............   Passed    3.73 sec
+46/46 Test #31: infantry_sweep_trial_contracts ............   Passed    0.81 sec
+
+100% tests passed out of 46
+
+Total Test time (real) =   3.87 sec
+
+exit=0

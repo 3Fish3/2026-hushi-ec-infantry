@@ -13,7 +13,7 @@ namespace {
 }
 } // 内部辅助
 
-AuthorityDecision InfantryAuthority::update(const LinkInputs& inputs) noexcept {
+AuthorityDecision InfantryAuthority::update(const LinkInputs& inputs, bool require_physical_maintenance) noexcept {
     // 1. 首启许可: 第一份有效遥控样本即视为已见到运行状态 (非法帧/非法拨杆不会走到这里).
     if (inputs.remote_online) { running_state_reached_ = true; }
 
@@ -91,7 +91,10 @@ AuthorityDecision InfantryAuthority::update(const LinkInputs& inputs) noexcept {
     // 5. 互斥维护来源: 仅在无正常来源 (原来源已释放)、非人工停止、会话/请求具备时可用.
     //    不要求左拨杆停在待机位: Jetson 可以撤请求释放来源以交接维护 (I05).
     //    人工停止态允许建立会话, 但不签发执行授权.
-    const bool maintenance_allowed = !stop && running_state_reached_ && inputs.locally_ready &&
+    // 步兵维护必须持续收到专用挡位的新鲜遥控帧; 不沿用掉线前的选源锁存.
+    const bool physical_ok = !require_physical_maintenance || (inputs.remote_online &&
+        inputs.switch_left == drivers::Dr16Switch::mid && inputs.switch_right == drivers::Dr16Switch::mid);
+    const bool maintenance_allowed = physical_ok && !stop && running_state_reached_ && inputs.locally_ready &&
         !maintenance_barred_ && !normal_decision.has_value() && inputs.maintenance_link_alive &&
         inputs.maintenance_request;
     if (maintenance_allowed) {

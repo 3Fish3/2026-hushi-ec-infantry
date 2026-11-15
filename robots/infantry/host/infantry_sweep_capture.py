@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""步兵 APP USART1 只读 1 kHz 采样采集 (C 板 UART2, 921600 8N1).
+"""步兵 APP USART1 只读 250 Hz 采样采集 (C 板 UART2, 921600 8N1).
 
 本工具绝不 hello/authorize、不设置目标、不写参数、不使能电机, 也不启动 Sweep.
 它只通过 infantry_client 既有的 UartFrame/CRC16 分帧请求环形缓存中的样本.
@@ -21,20 +21,23 @@ import infantry_client as wire
 
 REQUEST = 0x37
 RESPONSE = 0xB7
-SCHEMA = 1
+SCHEMA = 2
 HEADER = struct.Struct('<BBBBIII')
-RECORD = struct.Struct('<III10fHBB')
+# schema 2: '<III10fHBBI3f' — 记录末尾追加 sweep 运行标识与激励字段.
+RECORD = struct.Struct('<III10fHBBI3f')
 FIELDS = (
     'sequence', 'timestamp_us', 'reference_epoch',
     'target_heading_rad', 'heading_rad', 'heading_rate_rad_s',
     'dm_position_rad', 'dm_velocity_rad_s', 'torque_command_nm',
     'torque_feedback_nm', 'speed_target_rad_s', 'speed_p_nm', 'speed_i_nm',
     'flags', 'reason', 'feedback_age_ms',
+    'sweep_run_id', 'sweep_hz', 'requested_excitation_nm', 'applied_excitation_nm',
 )
-FLOAT_FIELDS = FIELDS[3:13]
+FLOAT_FIELDS = FIELDS[3:13] + FIELDS[17:20]
 # 与 infantry_sweep_capture.hpp 的 Flag 位一一对应; 有效性由 flags 表达, 不用 0/NaN 代替.
 FLAG_NAMES = ('target_valid', 'heading_valid', 'dm_feedback_fresh', 'dm_enabled',
-              'torque_submitted', 'pid_trace_valid', 'executing')
+              'torque_submitted', 'pid_trace_valid', 'executing',
+              'sweep_running', 'sweep_inhibited', 'sweep_angle')
 VALIDITY_FIELDS = {
     'target_heading_rad': 1 << 0,
     'heading_rad': 1 << 1, 'heading_rate_rad_s': 1 << 1,
@@ -43,15 +46,15 @@ VALIDITY_FIELDS = {
     'torque_command_nm': 1 << 4,
     'speed_target_rad_s': 1 << 5, 'speed_p_nm': 1 << 5, 'speed_i_nm': 1 << 5,
 }
-assert HEADER.size == 16 and RECORD.size == 56
-assert HEADER.size + 4 * RECORD.size == 240
+assert HEADER.size == 16 and RECORD.size == 72
+assert HEADER.size + 3 * RECORD.size == 232
 
 INFLIGHT = 4      # 固件固定 4 槽在途 FIFO: 同时未应答的请求上限
-PAGE = 4          # 每页最多 4 条记录 (240 B 上限)
-PREFILL_S = 0.016  # 16 ms ≈ 16 条 @1 kHz, 远小于 128 条 (128 ms) 环形深度
+PAGE = 3          # 每页最多 3 条记录 (232 B 上限)
+PREFILL_S = 0.016  # 16 ms ≈ 4 条 @250 Hz, 远小于 128 条 (512 ms) 环形深度
 DRAIN_SETTLE_S = 0.1  # 结束后有界排空在途应答, 避免遗留 B7 被后续 HELLO 交换误读
-RETRY_AFTER_S = 0.05  # 4 槽 FIFO 不覆盖旧应答: 丢应答必须短于 128 ms 环形深度就重发
-TAIL_PROBE_S = 0.004  # 尾部空页探测限速: 4 ms ≈ 4 条, 远小于 128 条环形深度
+RETRY_AFTER_S = 0.05  # 4 槽 FIFO 不覆盖旧应答: 丢应答必须短于 512 ms 环形深度就重发
+TAIL_PROBE_S = 0.004  # 尾部空页探测限速: 4 ms ≈ 1 条, 远小于 128 条环形深度
 
 
 class CaptureError(RuntimeError):
@@ -82,8 +85,8 @@ def decode_page(payload: bytes, expected_op: int) -> dict:
     version, kind, op, count, first, next_seq, earliest = HEADER.unpack_from(payload)
     if (version, kind, op) != (SCHEMA, RESPONSE, expected_op):
         raise CaptureError('capture schema, type, or op mismatch')
-    if count > 4:
-        raise CaptureError(f'page count {count} exceeds 4')
+    if count > PAGE:
+        raise CaptureError(f'page count {count} exceeds {PAGE}')
     if expected_op == 0 and (count or first != next_seq):
         raise CaptureError('status reply must be an empty page at next sequence')
     if len(payload) != HEADER.size + count * RECORD.size:

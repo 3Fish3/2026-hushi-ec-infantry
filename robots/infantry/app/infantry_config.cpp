@@ -124,6 +124,11 @@ void check_origin(Origin origin, ConfigAudience audience, Validator& v, bool& st
         v.add(ConfigIssue::invalid_gains);
         complete = false;
     }
+    if (!std::isfinite(slot.feedback_alpha) || slot.feedback_alpha < 0.0f || slot.feedback_alpha >= 1.0f ||
+        !std::isfinite(slot.velocity_deadband_rad_s) || slot.velocity_deadband_rad_s < 0.0f) {
+        v.add(ConfigIssue::invalid_gains);
+        complete = false;
+    }
     if (needs_position) {
         if (!slot.position_pid) {
             v.add(ConfigIssue::missing_gains);
@@ -301,8 +306,9 @@ bool valid_single_gimbal_imu(const SingleGimbalImuConfig& config,
         config.speed_pid.output_max > limits.torque_max_nm ||
         !std::isfinite(config.friction_torque_nm) || config.friction_torque_nm < 0.0f ||
         config.friction_torque_nm > limits.torque_max_nm ||
-        !std::isfinite(config.friction_band_nm) || config.friction_band_nm <= 0.0f ||
-        config.friction_band_nm > limits.torque_max_nm) { return false; }
+        !std::isfinite(limits.velocity_max_rad_s) || limits.velocity_max_rad_s <= 0.0f ||
+        !std::isfinite(config.friction_speed_rad_s) || config.friction_speed_rad_s <= 0.0f ||
+        config.friction_speed_rad_s > limits.velocity_max_rad_s) { return false; }
     return true;
 }
 
@@ -373,13 +379,13 @@ ConfigReport validate(const InfantryConfig& config, ConfigAudience audience) noe
         const auto domain = static_cast<Domain>(i);
         ConfigState state = ConfigState::unavailable;
         if (dji_by_domain[i]) {
-            // 关节域只允许 position 模式 (mode_allowed_for), 因此每个关节域都必须有位置
-            // 环增益 —— 缺了就会构造出全零 PidConfig, 轴永远无法使能. 这不是"只有两轴
-            // yaw 才需要"的可选项, 而是由模式白名单推出的必要条件.
-            const bool needs_position = is_joint(domain);
+            // 位置意图必须有位置环; 不能用全零缺省PID构造假执行资格.
+            const bool needs_position = uses_position_control(domain, config.infantry_controls);
             state = check_dji_slot(*dji_by_domain[i], audience, needs_position, v, startable);
         } else if (dm_by_domain[i]) {
             state = check_dm_slot(*dm_by_domain[i], audience, v, startable);
+            // 反馈接入阶段: 地址/量程可核对, 但该域不具备执行资格.
+            if (dm_by_domain[i]->feedback_only) { state = ConfigState::incomplete; }
         }
         if (state != ConfigState::unavailable) {
             if (is_chassis(domain)) { state = combine(state, wheel_state); }

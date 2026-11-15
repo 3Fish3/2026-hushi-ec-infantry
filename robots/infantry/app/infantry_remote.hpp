@@ -6,6 +6,8 @@
 //    不含射击/摩擦轮/拨弹与零位校准, 左拨杆上挡仍走摇杆映射;
 //  - ch4 三层决定右摇杆用途; 改用途的通道必须先回中一次才接管新用途;
 //  - 角度通道按目标角速度与 dt 积分成角度目标, 回中保持目标角, 初次接管取有效实际姿态;
+//  - 步兵丝杆 pitch 是速度语义: 右 Y 直接给速度目标 (旧工程分段律), 不积分成角度、
+//    也不需要实际位置反馈; pitch_rate_max_rad_s 为 0 时退回上面的角度积分路径;
 //  - 拨弹不锁存 (回中或离开发射机构层立即取消), 摩擦轮跨层保持但停止/失联/换源清除.
 #include "ec/input/dr16_input.hpp"
 #include "infantry_app.hpp"
@@ -39,7 +41,9 @@ struct RemoteMappingConfig {
     float chassis_vy_max_mps{};
     float chassis_wz_max_rad_s{};
     float yaw_rate_max_rad_s{};   // 右 X 在角度层给出的目标角速度上限
-    float pitch_rate_max_rad_s{}; // 右 Y 给出的 pitch 目标角速度上限
+    // 右 Y 的 pitch 目标角速度上限 (rad/s): 摇杆按 rate×dt 积分成角度目标, 回中保持该角.
+    // 0 = 未配置, 不产生该轴目标.
+    float pitch_rate_max_rad_s{};
     float friction_rad_s{};       // 摩擦轮开关采用的目标转速
     float trigger_rad_s{};        // 拨弹目标转速 (反转取反)
     Ch4LayerConfig ch4{};
@@ -56,6 +60,11 @@ struct RemoteMappingConfig {
     float mouse_pitch_rad_per_count{};
     // 步兵键鼠 WASD 平移速度 (m/s). 0 = 未标定, 不产生键鼠底盘目标.
     float keyboard_chassis_speed_mps{};
+    // 右摇杆轴向符号 (+1/-1): 只作用于云台 yaw(X) 与 pitch(Y) 的操纵方向,
+    // 不改变摩擦轮/拨弹/底盘旋转这些同通道但不同用途的判读. 放在末尾以保持
+    // 既有聚合初始化参数顺序不变.
+    int yaw_stick_sign{1};
+    int pitch_stick_sign{1};
 };
 
 // DR16 键盘位图 (16 位掩码) 中本模块用到的键位, 位序与旧步兵工程 2026 赛季一致.

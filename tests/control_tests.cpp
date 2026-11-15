@@ -162,6 +162,27 @@ ec::control::VelocityLoopConfig velocity_config(float alpha) {
     return {{1.0f, 0.0f, 0.0f, 0.0f, -1.0f, 1.0f}, {50}, 10.0f, 0.05f, alpha};
 }
 
+void velocity_deadband_contracts() {
+    auto config = velocity_config(0.1f);
+    config.error_deadband_rad_s = -0.1f;
+    CHECK(!ec::control::VelocityLoop{config}.configured());
+    config.error_deadband_rad_s = 0.1f;
+    ec::control::VelocityLoop loop{config};
+    const auto grant = loop.arm(ec::CommandSource::remote, true, true);
+    CHECK(grant);
+    const ec::Command<float> target{0.0f, {1000}, {50}, *grant};
+    const auto step = [&](float measured, ec::Tick now) {
+        return loop.step(now, 0.001f, target, ec::Sample<float>{measured, now, ec::Validity::valid});
+    };
+    CHECK(*step(0.1f, {1000}).output == 0.0f); // 边界属于死区
+    CHECK(near(*step(0.2f, {1001}).output, -0.19f));
+    CHECK(*step(0.0f, {1002}).output == 0.0f);
+    // 死区不撤权、不清滤波历史: 0.1*0.019 + 0.9*0.2 = 0.1819.
+    const auto resumed = step(0.2f, {1003});
+    CHECK(resumed.status == ec::control::VelocityStatus::active);
+    CHECK(near(*resumed.output, -0.1819f));
+}
+
 void velocity_filter_contracts() {
     using ec::control::VelocityLoop;
     using ec::control::VelocityStatus;
@@ -438,6 +459,7 @@ int main() {
     angle_contracts();
     current_scale_contracts();
     pid_reference_comparison();
+    velocity_deadband_contracts();
     velocity_filter_contracts();
     position_contracts();
     cascade_plant_contracts();

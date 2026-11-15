@@ -8,6 +8,7 @@ VelocityLoop::VelocityLoop(VelocityLoopConfig config) noexcept : config_(config)
         std::isfinite(config.max_dt_s) && config.max_dt_s > 0 &&
         std::isfinite(config.feedback_alpha) && config.feedback_alpha >= 0 &&
         config.feedback_alpha < 1 &&
+        std::isfinite(config.error_deadband_rad_s) && config.error_deadband_rad_s >= 0 &&
         config.pid.output_min >= -1 && config.pid.output_max <= 1;
 }
 
@@ -57,6 +58,12 @@ VelocityResult VelocityLoop::step(Tick now, float dt_s,
         filter_primed_ = true;
     }
     const float measured = config_.feedback_alpha > 0.0f ? filtered_feedback_ : feedback->value;
+    if (config_.error_deadband_rad_s > 0.0f &&
+        std::fabs(target->value - measured) <= config_.error_deadband_rad_s) {
+        // 死区只清PID历史, 保留授权与反馈滤波历史.
+        pid_.reset();
+        return {VelocityStatus::active, 0.0f};
+    }
     const auto output = pid_.step(target->value, measured, dt_s);
     if (!output) { return reject(VelocityStatus::controller_error); }
     return {VelocityStatus::active, output};

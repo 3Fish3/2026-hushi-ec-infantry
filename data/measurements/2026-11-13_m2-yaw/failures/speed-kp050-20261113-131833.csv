@@ -1,0 +1,1 @@
+sequence,timestamp_us,reference_epoch,target_heading_rad,heading_rad,heading_rate_rad_s,dm_position_rad,dm_velocity_rad_s,torque_command_nm,torque_feedback_nm,speed_target_rad_s,speed_p_nm,speed_i_nm,flags,reason,feedback_age_ms,sweep_run_id,sweep_hz,requested_excitation_nm,applied_excitation_nm

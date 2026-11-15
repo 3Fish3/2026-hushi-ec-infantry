@@ -20,6 +20,7 @@
 #include "ec/drivers/dr16.hpp"
 #include "ec/platform/stm32f407.hpp"
 #include "ec/transport/byte_pipe.hpp"
+#include "ec/transport/uart_frame.hpp"
 #include "can.h"
 #include "spi.h"
 #include "usart.h"
@@ -30,7 +31,8 @@ volatile EcBoardIo g_ec_io{};
 
 namespace {
 constexpr std::size_t kUart1Rx = 512;
-constexpr std::size_t kUart1Tx = 512;
+// 双DM设备页最多254 B载荷, 业务上限256 B; 单帧最坏转义530 B必须能整体入队.
+constexpr std::size_t kUart1Tx = ec::transport::uart_wire_max;
 constexpr std::size_t kUart3Rx = 64;
 constexpr ec::Lifetime kCanTtl{50};
 using Pipe1 = ec::transport::DmaBytePipe<kUart1Rx>;

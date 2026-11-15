@@ -1,0 +1,42 @@
+{
+  "tool": "infantry_sweep_trial",
+  "schema": 2,
+  "complete": true,
+  "frequencies": [
+    0.5
+  ],
+  "cycles": 3,
+  "amplitude_nm": 0.01,
+  "duration_s": 6.0,
+  "target_heading_rad": -0.39553678035736084,
+  "port": "/dev/serial/by-id/usb-Horco_Horco_CMSIS-DAP_332107148384-if02",
+  "baud": 921600,
+  "elf_sha256": "1d58c8a6899c8ca500aa3754e6ef19a580a21f36e87b1514bf88c57db3389a11",
+  "identity": "infantry_app",
+  "records": 1500,
+  "sweep_run_id": 4,
+  "mcu_span_us": 5999932,
+  "expected_us": 6000000,
+  "terminal_flags": 327,
+  "terminal_reason": 0,
+  "frequencies_report": [
+    {
+      "hz": 0.5,
+      "samples": 1500,
+      "heading_rms_rad": 0.0009126055360769368,
+      "heading_rate_rms_rad_s": 0.013017206060520262,
+      "applied_rms_nm": 0.005230239319684532,
+      "applied_peak_nm": 0.009999955072999,
+      "submitted_rms_nm": 0.005230239314547278,
+      "submitted_peak_nm": 0.009999956004321575,
+      "usable": true
+    }
+  ],
+  "disabled_confirmation": {
+    "flags": 262,
+    "feedback_fresh": true,
+    "dm_enabled": false,
+    "authority": false,
+    "confirmed": true
+  }
+}
