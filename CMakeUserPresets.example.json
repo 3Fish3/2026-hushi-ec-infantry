@@ -3,7 +3,8 @@
   "configurePresets": [
     {
       "name": "local-app",
-      "displayName": "步兵 C 板 APP 固件",
+      "displayName": "步兵正式程序（编译与烧录用）",
+      "description": "为 STM32 C 板生成 infantry_app 固件，使用 ARM 工具链。",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/app-arm-Release",
       "toolchainFile": "${sourceDir}/cmake/arm-none-eabi.cmake",
@@ -21,6 +22,7 @@
   "buildPresets": [
     {
       "name": "local-app",
+      "displayName": "编译步兵正式程序",
       "configurePreset": "local-app",
       "targets": ["infantry_app"],
       "jobs": 6

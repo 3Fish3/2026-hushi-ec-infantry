@@ -5,36 +5,21 @@
 
 ## VS Code 使用（Windows）
 
-安装 VS Code 的 **CMake Tools**、**C/C++** 扩展，以及 CMake、Ninja、ARM GNU
-工具链和 OpenOCD。用“文件 → 打开文件夹”打开当前克隆的仓库根目录，使 `.vscode` 配置生效。
+用“文件 → 打开文件夹”打开当前克隆的 `infantry` 仓库根目录。
+首次使用时安装 CMake Tools、C/C++ 扩展和编译工具，将
+[预设示例](CMakeUserPresets.example.json) 复制为本机 `CMakeUserPresets.json`，
+按实际位置填写工具链、SDK、Ninja 和 Python 路径；已有本机预设则保留。
 
-首次克隆后，将 [CMakeUserPresets.example.json](CMakeUserPresets.example.json) 复制为
-本机的 `CMakeUserPresets.json`（已有文件则保留）。按实际安装位置修改示例中的
-`CMAKE_MAKE_PROGRAM`、`ARM_GNU_ROOT`、`EC_STM32CUBE_F4_ROOT` 和
-`Python3_EXECUTABLE`；其中 SDK 路径必须指向本机的 STM32CubeF4 固件包。
-示例路径仅演示填写方式，不代表软件已经安装。开发依赖见下文 `requirements-dev.txt`；
-本机预设受 `.gitignore` 排除，不随提交分享。
+| 想做什么 | 在 VS Code 中选择 |
+|---|---|
+| 编译完整步兵程序 | **Ctrl+Shift+B**，默认任务“步兵：编译程序” |
+| 清理旧结果后重新编译 | **终端 → 运行任务 → 步兵：重新编译（清理旧结果）** |
+| 将程序写入开发板 | **终端 → 运行任务 → 步兵：编译并烧录到开发板** |
 
-首次使用时，按 `Ctrl+Shift+P` 依次执行：
-
-1. **CMake: 选择配置预设** → `local-app`（“步兵 C 板 APP 固件”）。
-2. **CMake: 配置**，等待成功。
-3. **CMake: 选择生成预设** → `local-app`。
-
-日常保存代码后，按 **Ctrl+Shift+B** 运行 **CMake: build**，也可执行
-**CMake: 生成**。代码提示和跳转使用同一份 CMake 工程信息。
-本机编译器、SDK 和 Python 路径保存在本地 `CMakeUserPresets.json` 中。
-
-### 烧录（CMSIS-DAP）
-
-1. 先使用 `local-app` 编译 APP，产物在 `build/app-arm-Release/boards/infantry_f407/`。
-2. 连接 CMSIS-DAP 的 SWD 接口和开发板，保持主控供电，并使电机处于停止状态。
-3. 选择 **终端 → 运行任务 → Flash**。
-
-`Flash` 使用 OpenOCD，通过 CMSIS-DAP/SWD 烧录固定的
-`build/app-arm-Release/boards/infantry_f407/infantry_app.elf`，随后校验并复位运行。
-看到 `Verified OK` 表示校验通过。此任务不自动编译，运行前先完成第 1 步。
-普通构建不会烧录；**CMake: 安装**也不是烧录操作。
+烧录入口会先检查环境并编译，成功后通过 CMSIS-DAP/SWD 写入、校验并复位运行。
+连接开发板并保持电机停止后再选择该任务。普通编译不会烧录。
+详细原理、父目录工作区的区别、安装与错误排查见
+[Windows 编译与烧录说明](docs/boards/infantry_f407/Windows编译与烧录说明.md)。
 
 ## 需求与契约
 

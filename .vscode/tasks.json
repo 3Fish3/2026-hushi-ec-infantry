@@ -2,10 +2,22 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "CMake: build",
-      "type": "cmake",
-      "command": "build",
-      "preset": "${command:cmake.activeBuildPresetName}",
+      "label": "步兵：准备编译（检查环境）",
+      "detail": "读取本机预设，检查 ARM 工具链和 SDK，并生成编译规则。",
+      "type": "process",
+      "command": "cmake",
+      "args": ["--preset", "local-app"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "步兵：编译程序",
+      "detail": "先检查环境，再编译完整 STM32 步兵程序；不连接开发板。",
+      "type": "process",
+      "command": "cmake",
+      "args": ["--build", "--preset", "local-app"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "dependsOn": "步兵：准备编译（检查环境）",
       "problemMatcher": ["$gcc"],
       "group": {
         "kind": "build",
@@ -13,7 +25,18 @@
       }
     },
     {
-      "label": "Flash",
+      "label": "步兵：重新编译（清理旧结果）",
+      "detail": "检查环境、清理构建目录中的旧结果，再完整编译；不删除源码。",
+      "type": "process",
+      "command": "cmake",
+      "args": ["--build", "--preset", "local-app", "--clean-first"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "dependsOn": "步兵：准备编译（检查环境）",
+      "problemMatcher": ["$gcc"]
+    },
+    {
+      "label": "步兵：编译并烧录到开发板",
+      "detail": "编译成功后，通过 CMSIS-DAP/SWD 写入固件、校验，再复位运行。",
       "type": "process",
       "command": "openocd",
       "args": [
@@ -26,6 +49,7 @@
       "options": {
         "cwd": "${workspaceFolder}"
       },
+      "dependsOn": "步兵：编译程序",
       "problemMatcher": []
     }
   ]
