@@ -1,0 +1,32 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "CMake: build",
+      "type": "cmake",
+      "command": "build",
+      "preset": "${command:cmake.activeBuildPresetName}",
+      "problemMatcher": ["$gcc"],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    },
+    {
+      "label": "Flash",
+      "type": "process",
+      "command": "openocd",
+      "args": [
+        "-f", "interface/cmsis-dap.cfg",
+        "-c", "transport select swd",
+        "-f", "target/stm32f4x.cfg",
+        "-c", "adapter speed 950",
+        "-c", "program {build/app-arm-Release/boards/infantry_f407/infantry_app.elf} verify reset exit"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    }
+  ]
+}

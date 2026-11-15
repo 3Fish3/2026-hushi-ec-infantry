@@ -2,6 +2,8 @@
 /out/
 /.cache/
 /.venv/
+# 每位开发者自行填写编译器和SDK路径; 共享填写示例, 不共享本机预设.
+/CMakeUserPresets.json
 __pycache__/
 .obsidian/
 # 本地参考资料统一忽略: 厂商手册、外部参考仓库与旧工程都不入库,

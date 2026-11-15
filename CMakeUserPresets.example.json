@@ -1,0 +1,29 @@
+{
+  "version": 3,
+  "configurePresets": [
+    {
+      "name": "local-app",
+      "displayName": "步兵 C 板 APP 固件",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/app-arm-Release",
+      "toolchainFile": "${sourceDir}/cmake/arm-none-eabi.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_MAKE_PROGRAM": "C:/msys64/mingw64/bin/ninja.exe",
+        "ARM_GNU_ROOT": "C:/msys64/mingw64",
+        "EC_STM32CUBE_F4_ROOT": "C:/STM32Cube/Repository/STM32Cube_FW_F4_V1.28.3",
+        "Python3_EXECUTABLE": "${sourceDir}/.venv/Scripts/python.exe",
+        "EC_BUILD_INFANTRY_APP": "ON",
+        "EC_FIRMWARE_ID": "infantry-local-release"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "local-app",
+      "configurePreset": "local-app",
+      "targets": ["infantry_app"],
+      "jobs": 6
+    }
+  ]
+}

@@ -3,6 +3,39 @@
 基于 Hushi EC 核心框架（取自哨兵重构工程）建立的**单云台步兵**电控工程。
 手写代码 C++20，实时路径无动态分配、无异常；注释使用简体中文。
 
+## VS Code 使用（Windows）
+
+安装 VS Code 的 **CMake Tools**、**C/C++** 扩展，以及 CMake、Ninja、ARM GNU
+工具链和 OpenOCD。用“文件 → 打开文件夹”打开当前克隆的仓库根目录，使 `.vscode` 配置生效。
+
+首次克隆后，将 [CMakeUserPresets.example.json](CMakeUserPresets.example.json) 复制为
+本机的 `CMakeUserPresets.json`（已有文件则保留）。按实际安装位置修改示例中的
+`CMAKE_MAKE_PROGRAM`、`ARM_GNU_ROOT`、`EC_STM32CUBE_F4_ROOT` 和
+`Python3_EXECUTABLE`；其中 SDK 路径必须指向本机的 STM32CubeF4 固件包。
+示例路径仅演示填写方式，不代表软件已经安装。开发依赖见下文 `requirements-dev.txt`；
+本机预设受 `.gitignore` 排除，不随提交分享。
+
+首次使用时，按 `Ctrl+Shift+P` 依次执行：
+
+1. **CMake: 选择配置预设** → `local-app`（“步兵 C 板 APP 固件”）。
+2. **CMake: 配置**，等待成功。
+3. **CMake: 选择生成预设** → `local-app`。
+
+日常保存代码后，按 **Ctrl+Shift+B** 运行 **CMake: build**，也可执行
+**CMake: 生成**。代码提示和跳转使用同一份 CMake 工程信息。
+本机编译器、SDK 和 Python 路径保存在本地 `CMakeUserPresets.json` 中。
+
+### 烧录（CMSIS-DAP）
+
+1. 先使用 `local-app` 编译 APP，产物在 `build/app-arm-Release/boards/infantry_f407/`。
+2. 连接 CMSIS-DAP 的 SWD 接口和开发板，保持主控供电，并使电机处于停止状态。
+3. 选择 **终端 → 运行任务 → Flash**。
+
+`Flash` 使用 OpenOCD，通过 CMSIS-DAP/SWD 烧录固定的
+`build/app-arm-Release/boards/infantry_f407/infantry_app.elf`，随后校验并复位运行。
+看到 `Verified OK` 表示校验通过。此任务不自动编译，运行前先完成第 1 步。
+普通构建不会烧录；**CMake: 安装**也不是烧录操作。
+
 ## 需求与契约
 
 **方向契约**：底盘前进方向跟随云台前方；小陀螺时云台使用 IMU 保持相对于地面的朝向。世界稳向双 PID 已接入主机控制链并通过合成闭环测试，实车参数与板级接入仍未完成。
@@ -103,5 +136,8 @@ DM 是 pitch；步兵恰好相反。框架把"DM 就是 pitch"写死在调度/�
 
 ## 参考
 
+- 当前 tzh 的修复和验证范围：[tzh 同步、Sweep 修复与步兵剩余问题](docs/handoffs/2026-11-15_tzh-sweep-fixes.md)。
+- 历史分析：[旧 main 小陀螺方向偏移分析](output/小陀螺方向核查/步兵main小陀螺方向偏移分析.md)，只适用于文中标明的旧提交。
+- 入门演示：[云台关节角与世界航向](output/入门教学/yaw-angle-basics.html)，下载后用浏览器打开，属于几何演示。
 - 上游框架文档：`docs/architecture`、`docs/guides`、`docs/modules`
 - 旧工程（只作参数与能力参考，不继承实现）：`../gxnu_hushi_ec`
